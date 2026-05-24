@@ -1,0 +1,54 @@
+# ================================================
+# Средний реактивный бизнес-джет (типа Cessna Citation CJ4)
+# ================================================
+
+# Основные параметры
+N = 2
+theta = 0.15
+C_x0 = 0.028
+Lambda = 9.2
+e = 0.82
+n_max = 3.2
+sigma = 1.0
+V_s = 52
+V_cruise = 185
+V_y = 10
+C_y_max = 1.5
+C_y_max_TO = 1.9
+L_TODA = 850
+pho_V_s = 1.225
+pho_V_cruise = 0.45
+pho_V_y = 1.1
+
+# Параметры для расчёта масс
+payload_mass = 1100
+design_range = 2000
+fuel_reserve_factor = 1.15
+cruise_sfc = 1.8e-5
+cruise_L_D_ratio = 13.5
+
+# ================================================
+# ГЕОМЕТРИЧЕСКИЕ ПАРАМЕТРЫ
+# ================================================
+
+# Крыло
+eta_wing = 2.5
+sweep_wing_quarter = 25.0
+# low/mid/high
+wing_scheme = mid
+
+# Горизонтальное оперение (ГО)
+k_horizontal_tail = 0.25
+lambda_horizontal_tail = 4.0
+eta_horizontal_tail = 3.0
+sweep_horizontal_tail_quarter = 30.0
+
+# Вертикальное оперение (ВО)
+k_vertical_tail = 0.15
+lambda_vertical_tail = 1.5
+eta_vertical_tail = 2.0
+sweep_vertical_tail_quarter = 35.0
+
+# Фюзеляж
+k_fuselage = 1.2
+lambda_fuselage = 9.0

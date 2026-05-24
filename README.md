@@ -1,0 +1,2 @@
+# aircraft_preliminary_design
+Репозиторий рабочего проекта
