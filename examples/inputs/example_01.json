@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "metadata": {
+    "case_name": "example_01",
+    "description": "Temporary minimal input file for new architecture smoke test"
+  },
+  "aircraft": {
+    "aircraft_type": "passenger"
+  },
+  "preliminary_sizing": {},
+  "mass_estimation": {},
+  "geometry": {}
+}

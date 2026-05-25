@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import argparse
 import logging
+from pathlib import Path
 
+from aircraft_design.core.errors import AircraftDesignError
+from aircraft_design.core.orchestrator import Orchestrator
+from aircraft_design.io import load_project_input, write_txt_result
 from aircraft_design.logging_config import configure_logging
 
 logger = logging.getLogger(__name__)
@@ -30,6 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output",
         dest="output_path",
+        default="outputs/result.txt",
         help="Path to output TXT file.",
     )
 
@@ -58,23 +63,65 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("Application started")
     logger.info("Mode: %s", args.mode)
 
-    if args.mode == "gui":
-        logger.info("GUI mode is not connected to the new core yet")
-        raise NotImplementedError("GUI mode will be connected in a later step")
+    try:
+        if args.mode == "gui":
+            logger.info("GUI mode is not connected to the new core yet")
+            raise NotImplementedError("GUI mode will be connected in a later step")
 
-    if args.mode == "batch":
-        logger.info("Batch mode requested")
-        logger.info("Input path: %s", args.input_path)
-        logger.info("Output path: %s", args.output_path)
-        raise NotImplementedError("Batch mode will be implemented after JSON input is ready")
+        if args.mode == "validate":
+            return run_validate_mode(args, parser)
 
-    if args.mode == "validate":
-        logger.info("Validation mode requested")
-        logger.info("Input path: %s", args.input_path)
-        raise NotImplementedError("Validation mode will be implemented after JSON schema is ready")
+        if args.mode == "batch":
+            return run_batch_mode(args, parser)
+
+    except AircraftDesignError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    except NotImplementedError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    except Exception:
+        logger.exception("Unexpected application error")
+        return 1
 
     parser.error(f"Unsupported mode: {args.mode}")
     return 2
+
+
+def run_validate_mode(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    if not args.input_path:
+        parser.error("--input is required for validate mode")
+
+    project_input = load_project_input(args.input_path)
+
+    logger.info("Input file is valid: %s", args.input_path)
+    logger.info("Schema version: %s", project_input.schema_version)
+
+    print(f"Input file is valid: {args.input_path}")
+    return 0
+
+
+def run_batch_mode(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    if not args.input_path:
+        parser.error("--input is required for batch mode")
+
+    input_path = Path(args.input_path)
+    output_path = Path(args.output_path)
+
+    logger.info("Loading input file: %s", input_path)
+    project_input = load_project_input(input_path)
+
+    logger.info("Running calculation")
+    orchestrator = Orchestrator(blocks=[])
+    result = orchestrator.run(project_input)
+
+    logger.info("Writing result file: %s", output_path)
+    write_txt_result(result, output_path)
+
+    print(f"Result written to: {output_path}")
+    return 0 if result.success else 1
 
 
 if __name__ == "__main__":

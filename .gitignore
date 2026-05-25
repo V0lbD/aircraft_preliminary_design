@@ -198,3 +198,7 @@ logs/
 
 # Project generated files
 project_structure.txt
+
+# Python packaging artifacts
+*.egg-info/
+src/*.egg-info/
