@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 
 from aircraft_design.core.errors import FileFormatError
-from aircraft_design.core.models import ProjectInput, normalize_project_input_data
-from aircraft_design.core.pipeline import get_default_input_schemas
+from aircraft_design.core.models import ProjectInput
+from aircraft_design.input_builder import create_project_input
 
 
 def load_project_input(path: str | Path) -> ProjectInput:
@@ -24,9 +24,4 @@ def load_project_input(path: str | Path) -> ProjectInput:
     except json.JSONDecodeError as exc:
         raise FileFormatError(f"Invalid JSON file '{input_path}': {exc}") from exc
 
-    normalized_data = normalize_project_input_data(
-        raw_data,
-        schemas=get_default_input_schemas(),
-    )
-
-    return ProjectInput.from_dict(normalized_data)
+    return create_project_input(raw_data)
