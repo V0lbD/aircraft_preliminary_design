@@ -179,3 +179,22 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# IDE
+.idea/
+.vscode/
+
+# Runtime output
+outputs/*
+!outputs/.gitkeep
+
+# Logs
+logs/
+*.log
+
+# Local files
+*.local.json
+*.local.yaml
+
+# Project generated files
+project_structure.txt
