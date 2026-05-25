@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 
 from aircraft_design.core.errors import AircraftDesignError
-from aircraft_design.io import load_project_input, write_txt_result
+from aircraft_design.io import load_project_input, write_json_result, write_txt_result
 from aircraft_design.logging_config import configure_logging
 
 from aircraft_design.app import run_calculation
@@ -37,6 +37,16 @@ def build_parser() -> argparse.ArgumentParser:
         dest="output_path",
         default="outputs/result.txt",
         help="Path to output TXT file.",
+    )
+
+    parser.add_argument(
+        "--output-format",
+        choices=["txt", "json"],
+        default=None,
+        help=(
+            "Output format. If omitted, format is inferred from output file "
+            "extension; otherwise TXT is used by default."
+        ),
     )
 
     parser.add_argument(
@@ -110,6 +120,7 @@ def run_batch_mode(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
 
     input_path = Path(args.input_path)
     output_path = Path(args.output_path)
+    output_format = resolve_output_format(output_path, args.output_format)
 
     logger.info("Loading input file: %s", input_path)
     project_input = load_project_input(input_path)
@@ -117,11 +128,28 @@ def run_batch_mode(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
     logger.info("Running calculation")
     result = run_calculation(project_input)
 
-    logger.info("Writing result file: %s", output_path)
-    write_txt_result(result, output_path)
+    logger.info("Writing %s result file: %s", output_format, output_path)
 
-    print(f"Result written to: {output_path}")
+    if output_format == "json":
+        write_json_result(result, output_path)
+    else:
+        write_txt_result(result, output_path)
+
+    print(f"{output_format.upper()} result written to: {output_path}")
     return 0 if result.success else 1
+
+
+def resolve_output_format(
+    output_path: Path,
+    requested_format: str | None,
+) -> str:
+    if requested_format is not None:
+        return requested_format
+
+    if output_path.suffix.lower() == ".json":
+        return "json"
+
+    return "txt"
 
 
 if __name__ == "__main__":
