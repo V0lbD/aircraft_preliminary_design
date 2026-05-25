@@ -5,14 +5,10 @@ import logging
 from pathlib import Path
 
 from aircraft_design.core.errors import AircraftDesignError
-from aircraft_design.core.orchestrator import Orchestrator
-from aircraft_design.core.blocks import (
-    GeometryBlock,
-    MassEstimationBlock,
-    PreliminarySizingBlock,
-)
 from aircraft_design.io import load_project_input, write_txt_result
 from aircraft_design.logging_config import configure_logging
+
+from aircraft_design.app import run_calculation
 
 logger = logging.getLogger(__name__)
 
@@ -119,14 +115,7 @@ def run_batch_mode(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
     project_input = load_project_input(input_path)
 
     logger.info("Running calculation")
-    orchestrator = Orchestrator(
-        blocks=[
-            PreliminarySizingBlock(),
-            MassEstimationBlock(),
-            GeometryBlock(),
-        ]
-    )
-    result = orchestrator.run(project_input)
+    result = run_calculation(project_input)
 
     logger.info("Writing result file: %s", output_path)
     write_txt_result(result, output_path)
