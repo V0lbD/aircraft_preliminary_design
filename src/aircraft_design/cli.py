@@ -6,6 +6,7 @@ from pathlib import Path
 
 from aircraft_design.core.errors import AircraftDesignError
 from aircraft_design.core.orchestrator import Orchestrator
+from aircraft_design.core.blocks import PreliminarySizingBlock
 from aircraft_design.io import load_project_input, write_txt_result
 from aircraft_design.logging_config import configure_logging
 
@@ -114,7 +115,11 @@ def run_batch_mode(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
     project_input = load_project_input(input_path)
 
     logger.info("Running calculation")
-    orchestrator = Orchestrator(blocks=[])
+    orchestrator = Orchestrator(
+        blocks=[
+            PreliminarySizingBlock(),
+        ]
+    )
     result = orchestrator.run(project_input)
 
     logger.info("Writing result file: %s", output_path)
