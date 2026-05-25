@@ -1,8 +1,12 @@
 ├── ./
+│   ├── .gitattributes
+│   ├── .gitignore
+│   ├── AircraftDesign.spec
 │   ├── config.py
 │   ├── generate_structure.py
 │   ├── Preliminary_design.spec
 │   ├── project_structure.txt
+│   ├── README.md
 │   ├── requirements.txt
 │   ├── run_app.py
 │   ├── __init__.py
@@ -38,6 +42,7 @@
 │   │   ├── example_input1.txt
 │   │   ├── example_input2.txt
 │   │   ├── example_input3.txt
+│   │   ├── example_input4.txt
 │   ├── outputs/
 │   │   ├── геометрия.txt
 │   │   ├── результаты.txt
