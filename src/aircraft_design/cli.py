@@ -5,10 +5,18 @@ import logging
 from pathlib import Path
 
 from aircraft_design.core.errors import AircraftDesignError
-from aircraft_design.io import load_project_input, write_json_result, write_txt_result
+from aircraft_design.io import (
+    load_project_input,
+    write_json_data,
+    write_json_result,
+    write_txt_result,
+)
 from aircraft_design.logging_config import configure_logging
 
 from aircraft_design.app import run_calculation
+
+from aircraft_design.core.models import create_input_template, input_schemas_to_dict
+from aircraft_design.core.pipeline import get_default_input_schemas
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         "--mode",
-        choices=["gui", "batch", "validate"],
+        choices=["gui", "batch", "validate", "schema", "template"],
         default="gui",
         help="Run mode: gui, batch or validate.",
     )
@@ -95,6 +103,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.mode == "batch":
             return run_batch_mode(args, parser)
 
+        if args.mode == "schema":
+            return run_schema_mode(args)
+
+        if args.mode == "template":
+            return run_template_mode(args)
+
     except AircraftDesignError as exc:
         logger.error("%s", exc)
         return 1
@@ -163,6 +177,32 @@ def resolve_output_format(
         return "json"
 
     return "txt"
+
+
+def run_schema_mode(args: argparse.Namespace) -> int:
+    output_path = Path(args.output_path)
+
+    schemas = get_default_input_schemas()
+    data = input_schemas_to_dict(schemas)
+
+    logger.info("Writing input schema file: %s", output_path)
+    write_json_data(data, output_path)
+
+    print(f"Input schema written to: {output_path}")
+    return 0
+
+
+def run_template_mode(args: argparse.Namespace) -> int:
+    output_path = Path(args.output_path)
+
+    schemas = get_default_input_schemas()
+    data = create_input_template(schemas)
+
+    logger.info("Writing input template file: %s", output_path)
+    write_json_data(data, output_path)
+
+    print(f"Input template written to: {output_path}")
+    return 0
 
 
 if __name__ == "__main__":

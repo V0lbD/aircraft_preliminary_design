@@ -6,7 +6,7 @@ from typing import Any
 
 from aircraft_design.core.blocks.base import BaseBlock
 from aircraft_design.core.errors import InputValidationError
-from aircraft_design.core.models import CalculationState
+from aircraft_design.core.models import BlockInputSchema, CalculationState, ParameterSpec
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +27,145 @@ class GeometryBlock(BaseBlock):
 
     name = "geometry"
     required_input_sections = ("geometry",)
+
+    input_schema = BlockInputSchema(
+        section_name="geometry",
+        block_name="geometry",
+        display_name="Геометрия",
+        description="Исходные параметры для расчёта геометрии крыла, фюзеляжа и оперения.",
+        parameters=(
+            ParameterSpec(
+                name="eta_wing",
+                value_type="number",
+                display_name="Сужение крыла",
+                description="Отношение корневой хорды крыла к концевой.",
+                required=False,
+                default=2.5,
+                min_value=0,
+                group="wing",
+            ),
+            ParameterSpec(
+                name="sweep_wing_quarter",
+                value_type="number",
+                display_name="Стреловидность крыла по 1/4 хорды",
+                description="Угол стреловидности крыла по линии 1/4 хорды.",
+                unit="deg",
+                required=False,
+                default=25.0,
+                group="wing",
+            ),
+            ParameterSpec(
+                name="wing_scheme",
+                value_type="string",
+                display_name="Схема крыла",
+                description="Положение крыла относительно фюзеляжа.",
+                required=False,
+                default="mid",
+                choices=("low", "mid", "high"),
+                group="wing",
+            ),
+            ParameterSpec(
+                name="k_horizontal_tail",
+                value_type="number",
+                display_name="Коэффициент площади ГО",
+                description="Отношение площади горизонтального оперения к площади крыла.",
+                required=False,
+                default=0.25,
+                min_value=0,
+                group="horizontal_tail",
+            ),
+            ParameterSpec(
+                name="lambda_horizontal_tail",
+                value_type="number",
+                display_name="Удлинение ГО",
+                description="Удлинение горизонтального оперения.",
+                required=False,
+                default=4.0,
+                min_value=0,
+                group="horizontal_tail",
+            ),
+            ParameterSpec(
+                name="eta_horizontal_tail",
+                value_type="number",
+                display_name="Сужение ГО",
+                description="Сужение горизонтального оперения.",
+                required=False,
+                default=3.0,
+                min_value=0,
+                group="horizontal_tail",
+            ),
+            ParameterSpec(
+                name="sweep_horizontal_tail_quarter",
+                value_type="number",
+                display_name="Стреловидность ГО по 1/4 хорды",
+                description="Угол стреловидности горизонтального оперения по 1/4 хорды.",
+                unit="deg",
+                required=False,
+                default=30.0,
+                group="horizontal_tail",
+            ),
+            ParameterSpec(
+                name="k_vertical_tail",
+                value_type="number",
+                display_name="Коэффициент площади ВО",
+                description="Отношение площади вертикального оперения к площади крыла.",
+                required=False,
+                default=0.15,
+                min_value=0,
+                group="vertical_tail",
+            ),
+            ParameterSpec(
+                name="lambda_vertical_tail",
+                value_type="number",
+                display_name="Удлинение ВО",
+                description="Удлинение вертикального оперения.",
+                required=False,
+                default=1.5,
+                min_value=0,
+                group="vertical_tail",
+            ),
+            ParameterSpec(
+                name="eta_vertical_tail",
+                value_type="number",
+                display_name="Сужение ВО",
+                description="Сужение вертикального оперения.",
+                required=False,
+                default=2.0,
+                min_value=0,
+                group="vertical_tail",
+            ),
+            ParameterSpec(
+                name="sweep_vertical_tail_quarter",
+                value_type="number",
+                display_name="Стреловидность ВО по 1/4 хорды",
+                description="Угол стреловидности вертикального оперения по 1/4 хорды.",
+                unit="deg",
+                required=False,
+                default=35.0,
+                group="vertical_tail",
+            ),
+            ParameterSpec(
+                name="k_fuselage",
+                value_type="number",
+                display_name="Коэффициент длины фюзеляжа",
+                description="Коэффициент для оценки длины фюзеляжа через размах крыла.",
+                required=False,
+                default=1.2,
+                min_value=0,
+                group="fuselage",
+            ),
+            ParameterSpec(
+                name="lambda_fuselage",
+                value_type="number",
+                display_name="Удлинение фюзеляжа",
+                description="Отношение длины фюзеляжа к диаметру.",
+                required=False,
+                default=9.0,
+                min_value=0,
+                group="fuselage",
+            ),
+        ),
+    )
 
     default_values: dict[str, Any] = {
         # Wing

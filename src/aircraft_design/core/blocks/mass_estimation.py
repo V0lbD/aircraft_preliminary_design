@@ -6,7 +6,7 @@ from typing import Any
 
 from aircraft_design.core.blocks.base import BaseBlock
 from aircraft_design.core.errors import InputValidationError
-from aircraft_design.core.models import CalculationState
+from aircraft_design.core.models import BlockInputSchema, CalculationState, ParameterSpec
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,63 @@ class MassEstimationBlock(BaseBlock):
 
     name = "mass_estimation"
     required_input_sections = ("mass_estimation",)
+
+    input_schema = BlockInputSchema(
+        section_name="mass_estimation",
+        block_name="mass_estimation",
+        display_name="Оценка масс",
+        description="Исходные параметры для оценки взлётной массы, топлива, тяги и площади крыла.",
+        parameters=(
+            ParameterSpec(
+                name="payload_mass",
+                value_type="number",
+                display_name="Масса полезной нагрузки",
+                description="Расчётная масса полезной нагрузки.",
+                unit="kg",
+                required=True,
+                min_value=0,
+                group="mass",
+            ),
+            ParameterSpec(
+                name="design_range",
+                value_type="number",
+                display_name="Расчётная дальность",
+                description="Расчётная дальность полёта.",
+                unit="km",
+                required=True,
+                min_value=0,
+                group="mission",
+            ),
+            ParameterSpec(
+                name="fuel_reserve_factor",
+                value_type="number",
+                display_name="Коэффициент запаса топлива",
+                description="Множитель, учитывающий запас топлива.",
+                required=True,
+                min_value=1,
+                group="mission",
+            ),
+            ParameterSpec(
+                name="cruise_sfc",
+                value_type="number",
+                display_name="Удельный расход топлива в крейсере",
+                description="Удельный расход топлива на крейсерском режиме.",
+                unit="1/s",
+                required=True,
+                min_value=0,
+                group="engine",
+            ),
+            ParameterSpec(
+                name="cruise_L_D_ratio",
+                value_type="number",
+                display_name="Аэродинамическое качество в крейсере",
+                description="Отношение подъёмной силы к сопротивлению на крейсерском режиме.",
+                required=True,
+                min_value=0,
+                group="aerodynamics",
+            ),
+        ),
+    )
 
     required_fields: tuple[str, ...] = (
         "payload_mass",

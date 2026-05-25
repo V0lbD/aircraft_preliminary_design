@@ -3,7 +3,11 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 
-from aircraft_design.core.models import BlockResult, CalculationState
+from aircraft_design.core.models import (
+    BlockInputSchema,
+    BlockResult,
+    CalculationState,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +22,10 @@ class BaseBlock(ABC):
 
     name: str = "base_block"
     required_input_sections: tuple[str, ...] = ()
+    input_schema: BlockInputSchema | None = None
+
+    def get_input_schema(self) -> BlockInputSchema | None:
+        return self.input_schema
 
     def validate(self, state: CalculationState) -> None:
         for section_name in self.required_input_sections:
@@ -25,8 +33,13 @@ class BaseBlock(ABC):
                 raise ValueError(f"Unknown input section: {section_name}")
 
             section = getattr(state.project_input, section_name)
+
             if not isinstance(section, dict):
                 raise ValueError(f"Input section '{section_name}' must be a dictionary.")
+
+        if self.input_schema is not None:
+            section = getattr(state.project_input, self.input_schema.section_name)
+            self.input_schema.normalize_section(section)
 
     def run(self, state: CalculationState) -> BlockResult:
         logger.info("Starting block: %s", self.name)

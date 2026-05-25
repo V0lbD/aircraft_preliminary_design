@@ -8,7 +8,7 @@ import numpy as np
 
 from aircraft_design.core.blocks.base import BaseBlock
 from aircraft_design.core.errors import InputValidationError
-from aircraft_design.core.models import CalculationState
+from aircraft_design.core.models import BlockInputSchema, CalculationState, ParameterSpec
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,167 @@ class PreliminarySizingBlock(BaseBlock):
 
     name = "preliminary_sizing"
     required_input_sections = ("preliminary_sizing",)
+
+    input_schema = BlockInputSchema(
+        section_name="preliminary_sizing",
+        block_name="preliminary_sizing",
+        display_name="Предварительные характеристики",
+        description="Исходные параметры для выбора нагрузки на крыло и тяговооружённости.",
+        parameters=(
+            ParameterSpec(
+                name="N",
+                value_type="integer",
+                display_name="Количество двигателей",
+                description="Количество двигателей самолёта.",
+                required=True,
+                min_value=1,
+                group="configuration",
+            ),
+            ParameterSpec(
+                name="theta",
+                value_type="number",
+                display_name="Градиент набора высоты",
+                description="Требуемый градиент набора высоты.",
+                required=True,
+                min_value=0,
+                group="performance",
+            ),
+            ParameterSpec(
+                name="C_x0",
+                value_type="number",
+                display_name="Cx0",
+                description="Коэффициент лобового сопротивления при нулевой подъёмной силе.",
+                required=True,
+                min_value=0,
+                group="aerodynamics",
+            ),
+            ParameterSpec(
+                name="Lambda",
+                value_type="number",
+                display_name="Удлинение крыла",
+                description="Геометрическое удлинение крыла.",
+                required=True,
+                min_value=0,
+                group="geometry",
+            ),
+            ParameterSpec(
+                name="e",
+                value_type="number",
+                display_name="Коэффициент Освальда",
+                description="Коэффициент эффективности крыла Освальда.",
+                required=True,
+                min_value=0,
+                max_value=1,
+                group="aerodynamics",
+            ),
+            ParameterSpec(
+                name="n_max",
+                value_type="number",
+                display_name="Максимальная эксплуатационная перегрузка",
+                description="Максимальная эксплуатационная перегрузка.",
+                required=True,
+                min_value=1,
+                group="performance",
+            ),
+            ParameterSpec(
+                name="sigma",
+                value_type="number",
+                display_name="Относительная плотность воздуха",
+                description="Относительная плотность воздуха для взлётных условий.",
+                required=True,
+                min_value=0,
+                group="atmosphere",
+            ),
+            ParameterSpec(
+                name="V_s",
+                value_type="number",
+                display_name="Скорость сваливания",
+                description="Расчётная скорость сваливания.",
+                unit="m/s",
+                required=True,
+                min_value=0,
+                group="speed",
+            ),
+            ParameterSpec(
+                name="V_cruise",
+                value_type="number",
+                display_name="Крейсерская скорость",
+                description="Расчётная крейсерская скорость.",
+                unit="m/s",
+                required=True,
+                min_value=0,
+                group="speed",
+            ),
+            ParameterSpec(
+                name="V_y",
+                value_type="number",
+                display_name="Скороподъёмность",
+                description="Требуемая скороподъёмность.",
+                unit="m/s",
+                required=True,
+                min_value=0,
+                group="performance",
+            ),
+            ParameterSpec(
+                name="C_y_max",
+                value_type="number",
+                display_name="Cy max",
+                description="Максимальный коэффициент подъёмной силы в посадочной конфигурации.",
+                required=True,
+                min_value=0,
+                group="aerodynamics",
+            ),
+            ParameterSpec(
+                name="C_y_max_TO",
+                value_type="number",
+                display_name="Cy max TO",
+                description="Максимальный коэффициент подъёмной силы во взлётной конфигурации.",
+                required=True,
+                min_value=0,
+                group="aerodynamics",
+            ),
+            ParameterSpec(
+                name="L_TODA",
+                value_type="number",
+                display_name="Взлётная дистанция",
+                description="Доступная или требуемая взлётная дистанция.",
+                unit="m",
+                required=True,
+                min_value=0,
+                group="runway",
+            ),
+            ParameterSpec(
+                name="pho_V_s",
+                value_type="number",
+                display_name="Плотность воздуха при V_s",
+                description="Плотность воздуха для режима сваливания.",
+                unit="kg/m³",
+                required=True,
+                min_value=0,
+                group="atmosphere",
+            ),
+            ParameterSpec(
+                name="pho_V_cruise",
+                value_type="number",
+                display_name="Плотность воздуха в крейсере",
+                description="Плотность воздуха на крейсерском режиме.",
+                unit="kg/m³",
+                required=True,
+                min_value=0,
+                group="atmosphere",
+            ),
+            ParameterSpec(
+                name="pho_V_y",
+                value_type="number",
+                display_name="Плотность воздуха при наборе",
+                description="Плотность воздуха для режима скороподъёмности.",
+                unit="kg/m³",
+                required=True,
+                min_value=0,
+                group="atmosphere",
+            ),
+        ),
+    )
 
     required_fields: tuple[str, ...] = (
         "pho_V_s",
