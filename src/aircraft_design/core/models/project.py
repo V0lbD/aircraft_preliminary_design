@@ -66,6 +66,60 @@ class ProjectInput:
 
 
 @dataclass(slots=True)
+class CalculationTraceRecord:
+    """
+    One trace record explaining how a significant calculated value was obtained.
+    """
+
+    block_name: str
+    value_name: str
+    formula: str
+    values: JsonDict = field(default_factory=dict)
+    result: Any = None
+    unit: str | None = None
+    description: str | None = None
+
+
+@dataclass(slots=True)
+class CalculationTrace:
+    """
+    Calculation trace accumulator.
+
+    Blocks should add records here instead of writing long formula explanations
+    directly to logger.debug().
+    """
+
+    enabled: bool = True
+    records: list[CalculationTraceRecord] = field(default_factory=list)
+
+    def add(
+        self,
+        *,
+        block_name: str,
+        value_name: str,
+        formula: str,
+        values: JsonDict | None = None,
+        result: Any = None,
+        unit: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        if not self.enabled:
+            return
+
+        self.records.append(
+            CalculationTraceRecord(
+                block_name=block_name,
+                value_name=value_name,
+                formula=formula,
+                values=values or {},
+                result=result,
+                unit=unit,
+                description=description,
+            )
+        )
+
+
+@dataclass(slots=True)
 class CalculationState:
     """
     Mutable calculation state shared between blocks during one run.
@@ -74,6 +128,28 @@ class CalculationState:
     project_input: ProjectInput
     data: JsonDict = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+    trace: CalculationTrace = field(default_factory=CalculationTrace)
+
+    def add_trace(
+        self,
+        *,
+        block_name: str,
+        value_name: str,
+        formula: str,
+        values: JsonDict | None = None,
+        result: Any = None,
+        unit: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        self.trace.add(
+            block_name=block_name,
+            value_name=value_name,
+            formula=formula,
+            values=values,
+            result=result,
+            unit=unit,
+            description=description,
+        )
 
 
 @dataclass(slots=True)
@@ -92,6 +168,7 @@ class ProjectResult:
     block_results: list[BlockResult] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    trace: list[CalculationTraceRecord] = field(default_factory=list)
 
     @property
     def outputs(self) -> JsonDict:

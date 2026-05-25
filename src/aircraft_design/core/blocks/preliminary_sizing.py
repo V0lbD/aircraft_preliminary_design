@@ -127,6 +127,19 @@ class PreliminarySizingBlock(BaseBlock):
         logger.debug("C_y for max K: %s", C_y)
 
         p0_by_V_s = 0.5 * pho_V_s * V_s**2 * C_y_max
+        state.add_trace(
+            block_name=self.name,
+            value_name="p0_by_V_s",
+            formula="p0_by_V_s = 0.5 * pho_V_s * V_s^2 * C_y_max",
+            values={
+                "pho_V_s": pho_V_s,
+                "V_s": V_s,
+                "C_y_max": C_y_max,
+            },
+            result=float(p0_by_V_s),
+            unit="N/m²",
+            description="Wing loading limit from stall speed.",
+        )
 
         if N == 1:
             P0_by_theta = theta + 2 * math.sqrt(C_x0 / (aspect_ratio * e * math.pi))
@@ -134,6 +147,23 @@ class PreliminarySizingBlock(BaseBlock):
             P0_by_theta = (N / (N - 1)) * (
                 theta + 2 * math.sqrt(C_x0 / (aspect_ratio * e * math.pi))
             )
+        state.add_trace(
+            block_name=self.name,
+            value_name="P0_by_theta",
+            formula=(
+                "P0_by_theta = theta + 2 * sqrt(C_x0 / (pi * Lambda * e)) "
+                "for N = 1, otherwise multiplied by N / (N - 1)"
+            ),
+            values={
+                "N": N,
+                "theta": theta,
+                "C_x0": C_x0,
+                "Lambda": aspect_ratio,
+                "e": e,
+            },
+            result=float(P0_by_theta),
+            description="Thrust-to-weight limit from climb gradient.",
+        )
 
         p0_range = (10.0, p0_by_V_s * 1.2)
         p0_points = np.linspace(p0_range[0], p0_range[1], 100)
@@ -207,6 +237,21 @@ class PreliminarySizingBlock(BaseBlock):
             P0_by_L_TODA_points=P0_by_L_TODA_points,
             P0_by_V_y_points=P0_by_V_y_points,
             P0_by_V_cruise_points=P0_by_V_cruise_points,
+        )
+        state.add_trace(
+            block_name=self.name,
+            value_name="optimal_point",
+            formula="optimal_point = min envelope of active constraints over p0 grid",
+            values={
+                "p0_by_V_s": float(p0_by_V_s),
+                "P0_by_theta": float(P0_by_theta),
+                "active_constraints": active_constraints,
+            },
+            result={
+                "p0_optimal": float(p0_optimal),
+                "P0_optimal": float(P0_optimal),
+            },
+            description="Selected preliminary design point.",
         )
 
         active_constraint_items = [

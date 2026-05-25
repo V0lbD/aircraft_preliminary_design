@@ -47,7 +47,8 @@ def project_result_to_dict(result: ProjectResult) -> dict[str, Any]:
 
     The 'outputs' field is duplicated as a convenience aggregate:
     - block_results keeps full block-by-block information;
-    - outputs gives quick access to successful block outputs by block name.
+    - outputs gives quick access to successful block outputs by block name;
+    - trace explains how significant values were calculated.
     """
     data = asdict(result)
 
@@ -59,4 +60,5 @@ def project_result_to_dict(result: ProjectResult) -> dict[str, Any]:
         "errors": data["errors"],
         "block_results": data["block_results"],
         "outputs": result.outputs,
+        "trace": data["trace"],
     }

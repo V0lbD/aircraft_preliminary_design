@@ -63,6 +63,7 @@ def run_calculation(
     *,
     blocks: Sequence[BaseBlock] | None = None,
     stop_on_error: bool = True,
+    trace_enabled: bool = True,
 ) -> ProjectResult:
     """
     Run aircraft preliminary design calculation.
@@ -78,7 +79,10 @@ def run_calculation(
         stop_on_error=stop_on_error,
     )
 
-    result = orchestrator.run(project_input)
+    result = orchestrator.run(
+        project_input,
+        trace_enabled=trace_enabled,
+    )
 
     logger.info("Application calculation finished. Success: %s", result.success)
 

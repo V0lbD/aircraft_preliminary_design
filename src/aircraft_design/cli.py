@@ -50,6 +50,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--trace",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Enable calculation trace. "
+            "Use --no-trace to disable detailed formula trace."
+        ),
+    )
+
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
@@ -126,7 +136,10 @@ def run_batch_mode(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
     project_input = load_project_input(input_path)
 
     logger.info("Running calculation")
-    result = run_calculation(project_input)
+    result = run_calculation(
+        project_input,
+        trace_enabled=args.trace,
+    )
 
     logger.info("Writing %s result file: %s", output_format, output_path)
 

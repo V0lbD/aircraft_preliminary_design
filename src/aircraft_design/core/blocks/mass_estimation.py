@@ -115,6 +115,16 @@ class MassEstimationBlock(BaseBlock):
 
         # Old formula 5.49.
         m_OE_ratio = 0.23 + 1.04 * P0_optimal
+        state.add_trace(
+            block_name=self.name,
+            value_name="m_OE_ratio",
+            formula="m_OE_ratio = 0.23 + 1.04 * P0_optimal",
+            values={
+                "P0_optimal": P0_optimal,
+            },
+            result=float(m_OE_ratio),
+            description="Estimated operating empty mass ratio.",
+        )
 
         mission_segments = {
             "engine_start": 0.990,
@@ -142,6 +152,17 @@ class MassEstimationBlock(BaseBlock):
 
         design_range_m = design_range_km * 1000.0
         M_ff_cruise = math.exp(-design_range_m / breguet_range_factor)
+        state.add_trace(
+            block_name=self.name,
+            value_name="M_ff_cruise",
+            formula="M_ff_cruise = exp(-design_range_m / breguet_range_factor)",
+            values={
+                "design_range_m": design_range_m,
+                "breguet_range_factor": breguet_range_factor,
+            },
+            result=float(M_ff_cruise),
+            description="Cruise mission fuel fraction from Breguet range relation.",
+        )
 
         M_ff_total = M_ff_non_cruise * M_ff_cruise
 
@@ -164,6 +185,17 @@ class MassEstimationBlock(BaseBlock):
             )
 
         m_MTO = payload_mass / denominator
+        state.add_trace(
+            block_name=self.name,
+            value_name="M_ff_cruise",
+            formula="M_ff_cruise = exp(-design_range_m / breguet_range_factor)",
+            values={
+                "design_range_m": design_range_m,
+                "breguet_range_factor": breguet_range_factor,
+            },
+            result=float(M_ff_cruise),
+            description="Cruise mission fuel fraction from Breguet range relation.",
+        )
 
         m_OE = m_MTO * m_OE_ratio
         m_F = m_MTO * m_F_ratio
@@ -176,6 +208,19 @@ class MassEstimationBlock(BaseBlock):
 
         T_TO = m_MTO * STANDARD_GRAVITY * P0_optimal
         S_W = (m_MTO * STANDARD_GRAVITY) / p0_optimal
+        state.add_trace(
+            block_name=self.name,
+            value_name="S_W",
+            formula="S_W = (m_MTO * g) / p0_optimal",
+            values={
+                "m_MTO": m_MTO,
+                "g": STANDARD_GRAVITY,
+                "p0_optimal": p0_optimal,
+            },
+            result=float(S_W),
+            unit="m²",
+            description="Wing area from maximum takeoff mass and wing loading.",
+        )
 
         return {
             "m_MTO": float(m_MTO),

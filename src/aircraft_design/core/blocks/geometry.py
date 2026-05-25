@@ -135,10 +135,48 @@ class GeometryBlock(BaseBlock):
 
         # === Wing ===
         l_wing = math.sqrt(S_wing * lambda_wing)
+        state.add_trace(
+            block_name=self.name,
+            value_name="l_wing",
+            formula="l_wing = sqrt(S_wing * lambda_wing)",
+            values={
+                "S_wing": S_wing,
+                "lambda_wing": lambda_wing,
+            },
+            result=float(l_wing),
+            unit="m",
+            description="Wing span from wing area and aspect ratio.",
+        )
 
         eta_wing = self._get_number(values, "eta_wing")
         b0_wing = (2.0 * S_wing) / (l_wing * (1.0 + 1.0 / eta_wing))
         bk_wing = b0_wing / eta_wing
+        state.add_trace(
+            block_name=self.name,
+            value_name="b0_wing",
+            formula="b0_wing = 2 * S_wing / (l_wing * (1 + 1 / eta_wing))",
+            values={
+                "S_wing": S_wing,
+                "l_wing": l_wing,
+                "eta_wing": eta_wing,
+            },
+            result=float(b0_wing),
+            unit="m",
+            description="Wing root chord.",
+        )
+
+        state.add_trace(
+            block_name=self.name,
+            value_name="bk_wing",
+            formula="bk_wing = b0_wing / eta_wing",
+            values={
+                "b0_wing": b0_wing,
+                "eta_wing": eta_wing,
+            },
+            result=float(bk_wing),
+            unit="m",
+            description="Wing tip chord.",
+        )
 
         sweep_wing_quarter = self._get_number(values, "sweep_wing_quarter")
         sweep_wing_LE = self._calculate_le_sweep_angle(
@@ -153,6 +191,19 @@ class GeometryBlock(BaseBlock):
         lambda_fuselage = self._get_number(values, "lambda_fuselage")
 
         L_fuselage = k_fuselage * l_wing
+        state.add_trace(
+            block_name=self.name,
+            value_name="L_fuselage",
+            formula="L_fuselage = k_fuselage * l_wing",
+            values={
+                "k_fuselage": k_fuselage,
+                "l_wing": l_wing,
+            },
+            result=float(L_fuselage),
+            unit="m",
+            description="Fuselage length estimate.",
+        )
+
         d_fuselage = L_fuselage / lambda_fuselage
         r_fuselage = d_fuselage / 2.0
 
