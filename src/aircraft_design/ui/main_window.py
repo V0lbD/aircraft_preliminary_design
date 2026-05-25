@@ -19,9 +19,18 @@ from PySide6.QtWidgets import (
 )
 
 from aircraft_design.app import run_calculation_from_sections
+from aircraft_design.input_builder import (
+    create_project_input_from_sections,
+    project_input_to_dict,
+)
 from aircraft_design.core.errors import AircraftDesignError
 from aircraft_design.core.models import ProjectInput, ProjectResult
-from aircraft_design.io import load_project_input, write_json_result, write_txt_result
+from aircraft_design.io import (
+    load_project_input,
+    write_json_data,
+    write_json_result,
+    write_txt_result,
+)
 from aircraft_design.ui.adapter import (
     build_existence_chart_view,
     build_input_table_sections,
@@ -67,6 +76,7 @@ class MainWindow(QMainWindow):
         self._status_label = QLabel("Готово", self)
 
         self._load_json_button = QPushButton("Загрузить JSON", self)
+        self._save_input_json_button = QPushButton("Сохранить входной JSON", self)
         self._calculate_button = QPushButton("Рассчитать", self)
         self._save_txt_button = QPushButton("Сохранить TXT", self)
         self._save_json_button = QPushButton("Сохранить JSON", self)
@@ -82,6 +92,7 @@ class MainWindow(QMainWindow):
 
         toolbar_layout = QHBoxLayout()
         toolbar_layout.addWidget(self._load_json_button)
+        toolbar_layout.addWidget(self._save_input_json_button)
         toolbar_layout.addWidget(self._calculate_button)
         toolbar_layout.addStretch(1)
         toolbar_layout.addWidget(self._save_txt_button)
@@ -111,6 +122,7 @@ class MainWindow(QMainWindow):
 
     def _connect_signals(self) -> None:
         self._load_json_button.clicked.connect(self._on_load_json_clicked)
+        self._save_input_json_button.clicked.connect(self._on_save_input_json_clicked)
         self._calculate_button.clicked.connect(self._on_calculate_clicked)
         self._save_txt_button.clicked.connect(self._on_save_txt_clicked)
         self._save_json_button.clicked.connect(self._on_save_json_clicked)
@@ -144,6 +156,47 @@ class MainWindow(QMainWindow):
                 str(exc),
             )
 
+    def _on_save_input_json_clicked(self) -> None:
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Сохранить входной JSON",
+            "examples/inputs/input_from_ui.json",
+            "JSON files (*.json);;All files (*.*)",
+        )
+
+        if not file_path:
+            return
+
+        try:
+            project_input = self._build_current_project_input()
+            data = project_input_to_dict(project_input)
+
+            write_json_data(data, Path(file_path))
+
+            self._metadata["saved_input_file"] = str(file_path)
+            self._set_status(f"Входной JSON сохранён: {file_path}")
+
+        except AircraftDesignError as exc:
+            logger.warning("Cannot save input JSON: %s", exc)
+            self._show_error("Ошибка входных данных", str(exc))
+            self._set_status("Ошибка сохранения входного JSON")
+
+        except Exception as exc:
+            logger.exception("Failed to save input JSON")
+            self._show_error("Ошибка сохранения входного JSON", str(exc))
+            self._set_status("Ошибка сохранения входного JSON")
+
+    def _build_current_project_input(self) -> ProjectInput:
+        section_values = self._input_table.get_section_values()
+
+        return create_project_input_from_sections(
+            preliminary_sizing=section_values.get("preliminary_sizing", {}),
+            mass_estimation=section_values.get("mass_estimation", {}),
+            geometry=section_values.get("geometry", {}),
+            aircraft=self._aircraft,
+            metadata=self._metadata,
+        )
+
     def _load_project_input_to_ui(self, project_input: ProjectInput) -> None:
         self._aircraft = dict(project_input.aircraft)
         self._metadata = dict(project_input.metadata)
@@ -163,14 +216,14 @@ class MainWindow(QMainWindow):
 
     def _on_calculate_clicked(self) -> None:
         try:
-            section_values = self._input_table.get_section_values()
+            project_input = self._build_current_project_input()
 
             result = run_calculation_from_sections(
-                preliminary_sizing=section_values.get("preliminary_sizing", {}),
-                mass_estimation=section_values.get("mass_estimation", {}),
-                geometry=section_values.get("geometry", {}),
-                aircraft=self._aircraft,
-                metadata=self._metadata,
+                preliminary_sizing=project_input.preliminary_sizing,
+                mass_estimation=project_input.mass_estimation,
+                geometry=project_input.geometry,
+                aircraft=project_input.aircraft,
+                metadata=project_input.metadata,
                 trace_enabled=True,
             )
 

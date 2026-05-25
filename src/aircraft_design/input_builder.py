@@ -72,3 +72,19 @@ def create_project_input_from_sections(
         raw_data,
         schemas=schemas,
     )
+
+
+def project_input_to_dict(project_input: ProjectInput) -> JsonDict:
+    """
+    Convert ProjectInput back to JSON-compatible dictionary.
+
+    Useful for saving edited UI input data to input JSON file.
+    """
+    return {
+        "schema_version": project_input.schema_version,
+        "metadata": dict(project_input.metadata),
+        "aircraft": dict(project_input.aircraft),
+        "preliminary_sizing": dict(project_input.preliminary_sizing),
+        "mass_estimation": dict(project_input.mass_estimation),
+        "geometry": dict(project_input.geometry),
+    }

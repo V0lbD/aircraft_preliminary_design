@@ -9,6 +9,7 @@ from aircraft_design.core.pipeline import create_default_blocks
 from aircraft_design.input_builder import (
     create_project_input,
     create_project_input_from_sections,
+    project_input_to_dict,
 )
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "run_calculation",
     "run_calculation_from_dict",
     "run_calculation_from_sections",
+    "project_input_to_dict",
 ]
