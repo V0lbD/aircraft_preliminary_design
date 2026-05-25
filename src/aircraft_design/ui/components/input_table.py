@@ -147,7 +147,10 @@ class InputTableWidget(QWidget):
     def _populate_table(self, section: InputSectionView) -> None:
         self._updating_table = True
 
+        self._clear_table_cell_widgets()
+
         self._description_label.setText(section.description)
+        self._table.clearContents()
         self._table.setRowCount(len(section.fields))
 
         for row, field in enumerate(section.fields):
@@ -159,6 +162,12 @@ class InputTableWidget(QWidget):
         self._updating_table = False
 
     def _set_value_cell(self, row: int, field: InputFieldView) -> None:
+        old_widget = self._table.cellWidget(row, 1)
+
+        if old_widget is not None:
+            self._table.removeCellWidget(row, 1)
+            old_widget.deleteLater()
+
         if field.choices:
             combo = QComboBox(self._table)
 
@@ -184,6 +193,22 @@ class InputTableWidget(QWidget):
             | Qt.ItemFlag.ItemIsEditable
         )
         self._table.setItem(row, 1, item)
+
+    def _clear_table_cell_widgets(self) -> None:
+        """
+        Remove widgets from all table cells before repopulating the table.
+
+        QTableWidget does not always remove old cell widgets when setItem(...)
+        is called later for the same cell. Without this cleanup, combo boxes from
+        one input section can visually remain in another section.
+        """
+        for row in range(self._table.rowCount()):
+            for column in range(self._table.columnCount()):
+                cell_widget = self._table.cellWidget(row, column)
+
+                if cell_widget is not None:
+                    self._table.removeCellWidget(row, column)
+                    cell_widget.deleteLater()
 
     def _set_read_only_item(self, row: int, column: int, text: str) -> None:
         item = QTableWidgetItem(text)

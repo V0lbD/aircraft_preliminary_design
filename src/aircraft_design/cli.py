@@ -94,8 +94,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.mode == "gui":
-            logger.info("GUI mode is not connected to the new core yet")
-            raise NotImplementedError("GUI mode will be connected in a later step")
+            return run_gui_mode()
 
         if args.mode == "validate":
             return run_validate_mode(args, parser)
@@ -204,6 +203,13 @@ def run_template_mode(args: argparse.Namespace) -> int:
     print(f"Input template written to: {output_path}")
     return 0
 
+
+def run_gui_mode() -> int:
+    logger.info("Starting GUI mode")
+
+    from aircraft_design.ui.run import run_gui_application
+
+    return run_gui_application()
 
 if __name__ == "__main__":
     raise SystemExit(main())
