@@ -20,6 +20,8 @@ class ExistenceChartWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
+        self._max_y_value = 2.5
+
         self._figure = Figure(figsize=(6, 4))
         self._canvas = FigureCanvas(self._figure)
         self._axes = self._figure.add_subplot(111)
@@ -62,6 +64,7 @@ class ExistenceChartWidget(QWidget):
         self._axes.set_title("Область существования самолёта")
         self._axes.set_xlabel("p0, Н/м²")
         self._axes.set_ylabel("P0")
+        self._axes.set_ylim(bottom=0.0, top=self._max_y_value)
         self._axes.grid(True)
         self._axes.legend(loc="best")
         self._figure.tight_layout()

@@ -8,6 +8,23 @@ from aircraft_design.core.blocks.base import BaseBlock
 from aircraft_design.core.errors import InputValidationError
 from aircraft_design.core.models import BlockInputSchema, CalculationState, ParameterSpec
 
+from aircraft_design.core.mass_components import (
+    ENGINE_ELECTRIC,
+    ENGINE_PISTON_AIR,
+    ENGINE_PISTON_LIQUID,
+    ENGINE_TURBOPROP,
+    GEAR_FAIRING_NONE,
+    GEAR_FAIRING_RETRACTABLE,
+    GEAR_FAIRING_WHEELS,
+    GEAR_MATERIAL_HIGH_STRENGTH,
+    GEAR_MATERIAL_MEDIUM_STEEL,
+    GEAR_NONE,
+    GEAR_SKI,
+    GEAR_WHEELED_BRAKED,
+    GEAR_WHEELED_UNBRAKED,
+    calculate_component_mass_iteration,
+)
+
 logger = logging.getLogger(__name__)
 
 STANDARD_GRAVITY = 9.80665
@@ -83,6 +100,197 @@ class MassEstimationBlock(BaseBlock):
                 required=True,
                 min_value=0,
                 group="aerodynamics",
+            ),
+            ParameterSpec(
+                name="component_iteration_enabled",
+                value_type="boolean",
+                display_name="Включить уточнение масс по компонентам",
+                description="Если включено, после базового расчёта запускается итерационный расчёт масс компонентов.",
+                required=False,
+                default=True,
+                group="component_iteration",
+            ),
+            ParameterSpec(
+                name="component_tolerance",
+                value_type="number",
+                display_name="Допуск сходимости по массе",
+                description="Относительная разница между итерациями, при которой расчёт считается сошедшимся.",
+                required=False,
+                default=0.05,
+                min_value=0,
+                group="component_iteration",
+            ),
+            ParameterSpec(
+                name="component_max_iterations",
+                value_type="integer",
+                display_name="Максимум итераций",
+                description="Максимальное число итераций уточнения массы.",
+                required=False,
+                default=30,
+                min_value=1,
+                group="component_iteration",
+            ),
+            ParameterSpec(
+                name="engine_type",
+                value_type="string",
+                display_name="Тип двигателя",
+                description="Тип силовой установки для компонентного расчёта.",
+                required=False,
+                default=ENGINE_PISTON_AIR,
+                choices=(
+                    ENGINE_ELECTRIC,
+                    ENGINE_PISTON_AIR,
+                    ENGINE_PISTON_LIQUID,
+                    ENGINE_TURBOPROP,
+                ),
+                group="powerplant",
+            ),
+            ParameterSpec(
+                name="propeller_efficiency",
+                value_type="number",
+                display_name="КПД винта",
+                description="КПД винта для расчёта потребной мощности.",
+                required=False,
+                default=0.8,
+                min_value=0,
+                max_value=1,
+                group="powerplant",
+            ),
+            ParameterSpec(
+                name="wing_material_factor",
+                value_type="number",
+                display_name="Коэффициент материала крыла",
+                description="Коэффициент kм в формулах массы крыла.",
+                required=False,
+                default=1.0,
+                min_value=0,
+                group="wing_mass",
+            ),
+            ParameterSpec(
+                name="wing_relative_thickness",
+                value_type="number",
+                display_name="Относительная толщина крыла",
+                description="Относительная толщина профиля крыла c̄.",
+                required=False,
+                default=0.12,
+                min_value=0,
+                group="wing_mass",
+            ),
+            ParameterSpec(
+                name="wing_taper_ratio",
+                value_type="number",
+                display_name="Сужение крыла для массы",
+                description="Сужение крыла η, если оно не задано в блоке геометрии.",
+                required=False,
+                default=2.5,
+                min_value=0,
+                group="wing_mass",
+            ),
+            ParameterSpec(
+                name="fuselage_engine_mount_factor",
+                value_type="number",
+                display_name="Коэффициент установки двигателя на фюзеляже",
+                description="Коэффициент kс.у для формулы массы фюзеляжа.",
+                required=False,
+                default=1.0,
+                min_value=0,
+                group="fuselage_mass",
+            ),
+            ParameterSpec(
+                name="landing_gear_type",
+                value_type="string",
+                display_name="Тип шасси",
+                description="Тип шасси для расчёта массы.",
+                required=False,
+                default=GEAR_WHEELED_BRAKED,
+                choices=(
+                    GEAR_NONE,
+                    GEAR_SKI,
+                    GEAR_WHEELED_BRAKED,
+                    GEAR_WHEELED_UNBRAKED,
+                ),
+                group="landing_gear",
+            ),
+            ParameterSpec(
+                name="landing_gear_material",
+                value_type="string",
+                display_name="Материал шасси",
+                description="Материал шасси, определяющий коэффициент kкон.",
+                required=False,
+                default=GEAR_MATERIAL_MEDIUM_STEEL,
+                choices=(
+                    GEAR_MATERIAL_MEDIUM_STEEL,
+                    GEAR_MATERIAL_HIGH_STRENGTH,
+                ),
+                group="landing_gear",
+            ),
+            ParameterSpec(
+                name="landing_gear_fairing",
+                value_type="string",
+                display_name="Обтекатель шасси",
+                description="Наличие и тип обтекателя шасси.",
+                required=False,
+                default=GEAR_FAIRING_NONE,
+                choices=(
+                    GEAR_FAIRING_NONE,
+                    GEAR_FAIRING_WHEELS,
+                    GEAR_FAIRING_RETRACTABLE,
+                ),
+                group="landing_gear",
+            ),
+            ParameterSpec(
+                name="landing_gear_strut_length_m",
+                value_type="number",
+                display_name="Длина главной опоры шасси",
+                description="hглш: длина главной опоры от ВПП до узла крепления. Если неизвестна, можно оставить 1 м.",
+                unit="m",
+                required=False,
+                default=1.0,
+                min_value=0,
+                group="landing_gear",
+            ),
+            ParameterSpec(
+                name="battery_specific_energy_wh_kg",
+                value_type="number",
+                display_name="Удельная энергия АКБ",
+                description="Удельная энергия аккумулятора q.",
+                unit="Wh/kg",
+                required=False,
+                default=250.0,
+                min_value=0,
+                group="battery",
+            ),
+            ParameterSpec(
+                name="battery_efficiency",
+                value_type="number",
+                display_name="КПД электрической силовой установки",
+                description="КПД ηсу для расчёта относительной массы АКБ.",
+                required=False,
+                default=0.85,
+                min_value=0,
+                max_value=1,
+                group="battery",
+            ),
+            ParameterSpec(
+                name="cruise_altitude_m",
+                value_type="number",
+                display_name="Крейсерская высота",
+                description="Высота H для расчёта массы АКБ.",
+                unit="m",
+                required=False,
+                default=0.0,
+                min_value=0,
+                group="battery",
+            ),
+            ParameterSpec(
+                name="additional_mass_ratio",
+                value_type="number",
+                display_name="Дополнительная относительная масса",
+                description="Временная заглушка для прочих масс, пока их формулы не заданы.",
+                required=False,
+                default=0.0,
+                min_value=0,
+                group="other",
             ),
         ),
     )
@@ -223,7 +431,6 @@ class MassEstimationBlock(BaseBlock):
 
         M_ff_total = M_ff_non_cruise * M_ff_cruise
 
-        # Old block uses this fuel fraction formula.
         m_F_ratio = fuel_reserve_factor * (1.0 - M_ff_total)
 
         if m_F_ratio < 0:
@@ -257,18 +464,14 @@ class MassEstimationBlock(BaseBlock):
         m_OE = m_MTO * m_OE_ratio
         m_F = m_MTO * m_F_ratio
 
-        # Old block uses a typical business jet value.
-        m_ML_ratio = 0.88
-        m_ML = m_MTO * m_ML_ratio
-
         useful_load_ratio = (m_F + payload_mass) / m_MTO
 
         T_TO = m_MTO * STANDARD_GRAVITY * P0_optimal
-        S_W = (m_MTO * STANDARD_GRAVITY) / p0_optimal
+        S_W = m_MTO / p0_optimal
         state.add_trace(
             block_name=self.name,
             value_name="S_W",
-            formula="S_W = (m_MTO * g) / p0_optimal",
+            formula="S_W = m_MTO / p0_optimal",
             values={
                 "m_MTO": m_MTO,
                 "g": STANDARD_GRAVITY,
@@ -279,16 +482,77 @@ class MassEstimationBlock(BaseBlock):
             description="Wing area from maximum takeoff mass and wing loading.",
         )
 
+        component_iteration = calculate_component_mass_iteration(
+            initial_m0=m_MTO,
+            payload_mass=payload_mass,
+            fuel_mass_ratio=m_F_ratio,
+            p0_optimal=p0_optimal,
+            S_W=S_W,
+            preliminary_input=preliminary_input,
+            mass_input=section,
+            geometry_input=state.project_input.geometry,
+        )
+
+        if component_iteration.enabled:
+            state.add_trace(
+                block_name=self.name,
+                value_name="component_mass_iteration",
+                formula=(
+                    "m0_new = payload + fuel + wing + fuselage + tail + "
+                    "powerplant + landing_gear + battery + equipment_and_control + additional"
+                ),
+                values={
+                    "initial_m0": component_iteration.initial_m0,
+                    "tolerance": component_iteration.tolerance,
+                    "max_iterations": component_iteration.max_iterations,
+                    "iterations": component_iteration.iterations,
+                    "converged": component_iteration.converged,
+                    "relative_delta": component_iteration.relative_delta,
+                },
+                result={
+                    "final_m0": component_iteration.final_m0,
+                    "component_masses": (
+                        component_iteration.component_masses.to_dict()
+                        if component_iteration.component_masses is not None
+                        else {}
+                    ),
+                },
+                unit="kg",
+                description="Iterative component mass refinement.",
+            )
+
+            if not component_iteration.converged:
+                warning = (
+                    "Component mass iteration did not converge after "
+                    f"{component_iteration.max_iterations} iterations. "
+                    f"Last relative delta: {component_iteration.relative_delta:.5f}"
+                )
+                state.warnings.append(warning)
+                logger.warning(warning)
+
+            if component_iteration.converged and component_iteration.component_masses is not None:
+                m_MTO = component_iteration.final_m0
+                m_F = m_MTO * m_F_ratio
+                m_OE = component_iteration.component_masses.operating_empty_mass
+                useful_load_ratio = (m_F + payload_mass) / m_MTO
+                T_TO = m_MTO * STANDARD_GRAVITY * P0_optimal
+                S_W = m_MTO / p0_optimal
+            else:
+                warning = (
+                    "Component mass iteration did not converge. "
+                    "Base mass estimation values were kept."
+                )
+                state.warnings.append(warning)
+                logger.warning(warning)
+
         return {
             "m_MTO": float(m_MTO),
             "m_OE": float(m_OE),
             "m_F": float(m_F),
-            "m_ML": float(m_ML),
             "T_TO": float(T_TO),
             "S_W": float(S_W),
             "m_OE_ratio": float(m_OE_ratio),
             "m_F_ratio": float(m_F_ratio),
-            "m_ML_ratio": float(m_ML_ratio),
             "useful_load_ratio": float(useful_load_ratio),
             "mission": {
                 "mass_fractions": mission_segments,
@@ -297,6 +561,12 @@ class MassEstimationBlock(BaseBlock):
                 "M_ff_total": float(M_ff_total),
                 "breguet_range_factor": float(breguet_range_factor),
             },
+            "component_mass_iteration": component_iteration.to_dict(),
+            "component_masses": (
+                component_iteration.component_masses.to_dict()
+                if component_iteration.component_masses is not None
+                else {}
+            ),
             "inputs_from_preliminary_sizing": {
                 "p0_optimal": float(p0_optimal),
                 "P0_optimal": float(P0_optimal),

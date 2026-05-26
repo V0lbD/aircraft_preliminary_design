@@ -253,7 +253,7 @@ def _build_mass_rows(mass: dict[str, Any]) -> list[OutputRowView]:
     if not mass:
         return []
 
-    return [
+    rows = [
         OutputRowView(
             section="Оценка масс",
             name="m_MTO",
@@ -297,6 +297,151 @@ def _build_mass_rows(mass: dict[str, Any]) -> list[OutputRowView]:
             unit="м²",
         ),
     ]
+
+    component_iteration = _as_dict(mass.get("component_mass_iteration"))
+
+    if component_iteration:
+        rows.extend(
+            [
+                OutputRowView(
+                    section="Итерация масс компонентов",
+                    name="enabled",
+                    display_name="Итерационный расчёт включён",
+                    value=component_iteration.get("enabled"),
+                ),
+                OutputRowView(
+                    section="Итерация масс компонентов",
+                    name="converged",
+                    display_name="Итерация сошлась",
+                    value=component_iteration.get("converged"),
+                ),
+                OutputRowView(
+                    section="Итерация масс компонентов",
+                    name="iterations",
+                    display_name="Количество итераций",
+                    value=component_iteration.get("iterations"),
+                ),
+                OutputRowView(
+                    section="Итерация масс компонентов",
+                    name="relative_delta",
+                    display_name="Последняя относительная разница",
+                    value=component_iteration.get("relative_delta"),
+                ),
+                OutputRowView(
+                    section="Итерация масс компонентов",
+                    name="final_m0",
+                    display_name="Финальная масса по компонентам",
+                    value=component_iteration.get("final_m0"),
+                    unit="кг",
+                ),
+            ]
+        )
+
+        failure_reason = component_iteration.get("failure_reason")
+
+        if failure_reason:
+            rows.append(
+                OutputRowView(
+                    section="Итерация масс компонентов",
+                    name="failure_reason",
+                    display_name="Причина остановки",
+                    value=failure_reason,
+                )
+            )
+
+    component_masses = _as_dict(mass.get("component_masses"))
+
+    if component_masses:
+        rows.extend(
+            [
+                OutputRowView(
+                    section="Массы компонентов",
+                    name="payload",
+                    display_name="Полезная нагрузка",
+                    value=component_masses.get("payload"),
+                    unit="кг",
+                ),
+                OutputRowView(
+                    section="Массы компонентов",
+                    name="fuel",
+                    display_name="Топливо",
+                    value=component_masses.get("fuel"),
+                    unit="кг",
+                ),
+                OutputRowView(
+                    section="Массы компонентов",
+                    name="wing",
+                    display_name="Крыло",
+                    value=component_masses.get("wing"),
+                    unit="кг",
+                ),
+                OutputRowView(
+                    section="Массы компонентов",
+                    name="fuselage",
+                    display_name="Фюзеляж",
+                    value=component_masses.get("fuselage"),
+                    unit="кг",
+                ),
+                OutputRowView(
+                    section="Массы компонентов",
+                    name="tail",
+                    display_name="Оперение",
+                    value=component_masses.get("tail"),
+                    unit="кг",
+                ),
+                OutputRowView(
+                    section="Массы компонентов",
+                    name="powerplant",
+                    display_name="Силовая установка",
+                    value=component_masses.get("powerplant"),
+                    unit="кг",
+                ),
+                OutputRowView(
+                    section="Массы компонентов",
+                    name="landing_gear",
+                    display_name="Шасси",
+                    value=component_masses.get("landing_gear"),
+                    unit="кг",
+                ),
+                OutputRowView(
+                    section="Массы компонентов",
+                    name="battery",
+                    display_name="АКБ",
+                    value=component_masses.get("battery"),
+                    unit="кг",
+                ),
+                OutputRowView(
+                    section="Массы компонентов",
+                    name="equipment_and_control",
+                    display_name="Оборудование и управление",
+                    value=component_masses.get("equipment_and_control"),
+                    unit="кг",
+                ),
+                OutputRowView(
+                    section="Массы компонентов",
+                    name="additional",
+                    display_name="Дополнительная масса",
+                    value=component_masses.get("additional"),
+                    unit="кг",
+                ),
+                OutputRowView(
+                    section="Массы компонентов",
+                    name="operating_empty_mass",
+                    display_name="Масса пустого самолёта по компонентам",
+                    value=component_masses.get("operating_empty_mass"),
+                    unit="кг",
+                ),
+                OutputRowView(
+                    section="Массы компонентов",
+                    name="total_mass",
+                    display_name="Суммарная масса по компонентам",
+                    value=component_masses.get("total_mass"),
+                    unit="кг",
+                ),
+            ]
+        )
+
+    return rows
 
 
 def _build_geometry_rows(geometry: dict[str, Any]) -> list[OutputRowView]:

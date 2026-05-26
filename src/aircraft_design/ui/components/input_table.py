@@ -51,22 +51,14 @@ class InputTableWidget(QWidget):
             ]
         )
 
-        self._table.horizontalHeader().setSectionResizeMode(
-            0,
-            QHeaderView.ResizeMode.ResizeToContents,
-        )
-        self._table.horizontalHeader().setSectionResizeMode(
-            1,
-            QHeaderView.ResizeMode.ResizeToContents,
-        )
-        self._table.horizontalHeader().setSectionResizeMode(
-            2,
-            QHeaderView.ResizeMode.ResizeToContents,
-        )
-        self._table.horizontalHeader().setSectionResizeMode(
-            3,
-            QHeaderView.ResizeMode.Stretch,
-        )
+        header = self._table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setStretchLastSection(True)
+
+        self._table.setColumnWidth(0, 230)  # параметр
+        self._table.setColumnWidth(1, 120)  # значение
+        self._table.setColumnWidth(2, 80)  # ед.
+        self._table.setColumnWidth(3, 420)  # описание
 
         self._table.verticalHeader().setVisible(False)
         self._table.setAlternatingRowColors(True)

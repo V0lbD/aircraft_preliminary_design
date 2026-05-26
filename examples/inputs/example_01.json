@@ -30,7 +30,30 @@
     "design_range": 2000.0,
     "fuel_reserve_factor": 1.15,
     "cruise_sfc": 1.8e-5,
-    "cruise_L_D_ratio": 13.5
+    "cruise_L_D_ratio": 13.5,
+    "component_iteration_enabled": true,
+    "component_tolerance": 0.05,
+    "component_max_iterations": 30,
+
+    "engine_type": "ПД воздушного охлаждения",
+    "propeller_efficiency": 0.8,
+
+    "wing_material_factor": 1.0,
+    "wing_relative_thickness": 0.12,
+    "wing_taper_ratio": 2.5,
+
+    "fuselage_engine_mount_factor": 1.0,
+
+    "landing_gear_type": "колёсное с тормозами",
+    "landing_gear_material": "сталь средней удельной прочности",
+    "landing_gear_fairing": "нет",
+    "landing_gear_strut_length_m": 1.0,
+
+    "battery_specific_energy_wh_kg": 250.0,
+    "battery_efficiency": 0.85,
+    "cruise_altitude_m": 0.0,
+
+    "additional_mass_ratio": 0.0
   },
   "geometry": {
     "eta_wing": 2.5,
