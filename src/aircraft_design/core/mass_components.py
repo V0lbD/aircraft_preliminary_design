@@ -428,6 +428,7 @@ def calculate_fuselage_mass(
 ) -> float:
     g0_daN = m0 * STANDARD_GRAVITY
 
+
     g_fuselage_daN = (
         0.584
         * settings.fuselage_engine_mount_factor

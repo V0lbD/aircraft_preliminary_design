@@ -1,0 +1,67 @@
+{
+  "schema_version": "1.0",
+  "metadata": {
+    "source": "ui",
+    "source_file": "D:/Work/aircraft_preliminary_design/examples/inputs/AN14.json"
+  },
+  "aircraft": {
+    "aircraft_type": "business_jet"
+  },
+  "preliminary_sizing": {
+    "N": 2,
+    "theta": 0.06,
+    "C_x0": 0.04,
+    "Lambda": 12.19,
+    "e": 0.68,
+    "n_max": 2.5,
+    "sigma": 1.0,
+    "V_s": 20.0,
+    "V_cruise": 48.0,
+    "V_y": 10.0,
+    "C_y_max": 1.6,
+    "C_y_max_TO": 2.6,
+    "L_TODA": 150.0,
+    "pho_V_s": 1.225,
+    "pho_V_cruise": 1.06,
+    "pho_V_y": 1.1
+  },
+  "mass_estimation": {
+    "payload_mass": 520.0,
+    "design_range": 400.0,
+    "fuel_reserve_factor": 1.0,
+    "cruise_sfc": 1.8e-05,
+    "cruise_L_D_ratio": 12.0,
+    "component_iteration_enabled": true,
+    "component_tolerance": 0.05,
+    "component_max_iterations": 30,
+    "engine_type": "ПД воздушного охлаждения",
+    "propeller_efficiency": 0.8,
+    "wing_material_factor": 0.8,
+    "wing_relative_thickness": 0.12,
+    "wing_taper_ratio": 1.5,
+    "fuselage_engine_mount_factor": 1.0,
+    "landing_gear_type": "колёсное с тормозами",
+    "landing_gear_material": "сталь средней удельной прочности",
+    "landing_gear_fairing": "нет",
+    "landing_gear_strut_length_m": 0.6,
+    "battery_specific_energy_wh_kg": 0.0,
+    "battery_efficiency": 0.0,
+    "cruise_altitude_m": 0.0,
+    "additional_mass_ratio": 0.0
+  },
+  "geometry": {
+    "eta_wing": 2.5,
+    "sweep_wing_quarter": 25.0,
+    "wing_scheme": "high",
+    "k_horizontal_tail": 0.25,
+    "lambda_horizontal_tail": 4.0,
+    "eta_horizontal_tail": 3.0,
+    "sweep_horizontal_tail_quarter": 30.0,
+    "k_vertical_tail": 0.15,
+    "lambda_vertical_tail": 1.5,
+    "eta_vertical_tail": 2.0,
+    "sweep_vertical_tail_quarter": 35.0,
+    "k_fuselage": 1.2,
+    "lambda_fuselage": 9.0
+  }
+}

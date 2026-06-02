@@ -378,8 +378,13 @@ class MassEstimationBlock(BaseBlock):
         logger.debug("p0_optimal: %s", p0_optimal)
         logger.debug("P0_optimal: %s", P0_optimal)
 
-        # Old formula 5.49.
+        # todo: надо ли такое разделение
+        # if P0_optimal > 0.4:
+        #     m_OE_ratio = 0.7
+        # else:
+
         m_OE_ratio = 0.23 + 1.04 * P0_optimal
+
         state.add_trace(
             block_name=self.name,
             value_name="m_OE_ratio",
@@ -404,7 +409,7 @@ class MassEstimationBlock(BaseBlock):
         for mass_fraction in mission_segments.values():
             M_ff_non_cruise *= mass_fraction
 
-        # Breguet range factor.
+        # todo: разобраться, надо ли домножать на 3.6
         breguet_range_factor = (
             cruise_l_d_ratio * cruise_velocity
         ) / (cruise_sfc * STANDARD_GRAVITY)
@@ -432,6 +437,20 @@ class MassEstimationBlock(BaseBlock):
         M_ff_total = M_ff_non_cruise * M_ff_cruise
 
         m_F_ratio = fuel_reserve_factor * (1.0 - M_ff_total)
+        # propeller_efficiency=float(state.project_input.mass_estimation.get("propeller_efficiency", 0.8))
+
+        # todo: потом убрать
+        # m_F_ratio = (math.exp(
+        #     ((design_range_km * STANDARD_GRAVITY * 0.26)
+        #     /
+        #     (735.5 * 3.6 * cruise_l_d_ratio * propeller_efficiency))
+        # ) - 1) / math.exp(
+        #     ((design_range_km * STANDARD_GRAVITY * 0.26)
+        #      /
+        #      (735.5 * 3.6 * cruise_l_d_ratio * propeller_efficiency))
+        # )
+
+        # m_F_ratio = 1 - math.exp(-((design_range_km * 0.26 * STANDARD_GRAVITY) / (cruise_l_d_ratio * propeller_efficiency)))
 
         if m_F_ratio < 0:
             raise InputValidationError(
@@ -446,6 +465,7 @@ class MassEstimationBlock(BaseBlock):
                 "Cannot calculate maximum takeoff mass: "
                 f"1 - m_F_ratio - m_OE_ratio = {denominator:.6g}. "
                 "Check fuel fraction, empty mass fraction and preliminary sizing outputs."
+                f"m_F_ratio = {m_F_ratio}, m_OE_ratio = {m_OE_ratio}"
             )
 
         m_MTO = payload_mass / denominator
