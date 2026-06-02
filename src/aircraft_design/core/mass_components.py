@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from aircraft_design.core.errors import InputValidationError
+from aircraft_design.core.models import CalculationTrace
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,45 @@ GEAR_MATERIAL_HIGH_STRENGTH = "металл высокой удельной пр
 GEAR_FAIRING_NONE = "нет"
 GEAR_FAIRING_WHEELS = "на колёса"
 GEAR_FAIRING_RETRACTABLE = "убираемое шасси"
+
+
+def add_component_trace(
+    trace: CalculationTrace | None,
+    *,
+    block_name: str,
+    iteration: int | None,
+    value_name: str,
+    formula: str,
+    values: dict[str, Any],
+    result: Any,
+    unit: str | None = None,
+    description: str | None = None,
+) -> None:
+    """
+    Add component mass formula trace record.
+
+    If iteration is provided, value_name is prefixed with iteration number.
+    """
+    if trace is None:
+        return
+
+    trace_values = dict(values)
+
+    if iteration is not None:
+        trace_values["iteration"] = iteration
+        full_value_name = f"iteration_{iteration}.{value_name}"
+    else:
+        full_value_name = value_name
+
+    trace.add(
+        block_name=block_name,
+        value_name=full_value_name,
+        formula=formula,
+        values=trace_values,
+        result=result,
+        unit=unit,
+        description=description,
+    )
 
 
 @dataclass(slots=True)
@@ -140,6 +180,8 @@ def calculate_component_mass_iteration(
     preliminary_input: dict[str, Any],
     mass_input: dict[str, Any],
     geometry_input: dict[str, Any],
+    trace: CalculationTrace | None = None,
+    block_name: str = "mass_estimation",
 ) -> ComponentMassIterationResult:
     settings = build_component_mass_settings(mass_input)
     failure_reason: str | None = None
@@ -190,6 +232,9 @@ def calculate_component_mass_iteration(
             mass_input=mass_input,
             geometry_input=geometry_input,
             settings=settings,
+            trace=trace,
+            block_name=block_name,
+            iteration=iteration,
         )
 
         m0_new = breakdown.total_mass
@@ -304,21 +349,45 @@ def calculate_component_masses_once(
     mass_input: dict[str, Any],
     geometry_input: dict[str, Any],
     settings: ComponentMassSettings,
+    trace: CalculationTrace | None = None,
+    block_name: str = "mass_estimation",
+    iteration: int | None = None,
 ) -> ComponentMassBreakdown:
     fuel_mass = m0 * fuel_mass_ratio
+
+    add_component_trace(
+        trace,
+        block_name=block_name,
+        iteration=iteration,
+        value_name="fuel_mass",
+        formula=r"m_F = m_0 \cdot \bar{m}_F",
+        values={
+            "m0": m0,
+            "fuel_mass_ratio": fuel_mass_ratio,
+        },
+        result=float(fuel_mass),
+        unit="kg",
+        description="Fuel mass for current component-mass iteration.",
+    )
 
     wing_mass = calculate_wing_mass(
         m0=m0,
         p0_optimal=p0_optimal,
-        S_W = S_W,
+        S_W=S_W,
         preliminary_input=preliminary_input,
         geometry_input=geometry_input,
         settings=settings,
+        trace=trace,
+        block_name=block_name,
+        iteration=iteration,
     )
 
     fuselage_mass = calculate_fuselage_mass(
         m0=m0,
         settings=settings,
+        trace=trace,
+        block_name=block_name,
+        iteration=iteration,
     )
 
     tail_mass = calculate_tail_mass(
@@ -326,6 +395,9 @@ def calculate_component_masses_once(
         p0_optimal=p0_optimal,
         preliminary_input=preliminary_input,
         geometry_input=geometry_input,
+        trace=trace,
+        block_name=block_name,
+        iteration=iteration,
     )
 
     powerplant_mass = calculate_powerplant_mass(
@@ -333,11 +405,17 @@ def calculate_component_masses_once(
         p0_optimal=p0_optimal,
         preliminary_input=preliminary_input,
         settings=settings,
+        trace=trace,
+        block_name=block_name,
+        iteration=iteration,
     )
 
     landing_gear_mass = calculate_landing_gear_mass(
         m0=m0,
         settings=settings,
+        trace=trace,
+        block_name=block_name,
+        iteration=iteration,
     )
 
     battery_mass = calculate_battery_mass(
@@ -345,11 +423,34 @@ def calculate_component_masses_once(
         preliminary_input=preliminary_input,
         mass_input=mass_input,
         settings=settings,
+        trace=trace,
+        block_name=block_name,
+        iteration=iteration,
     )
 
-    equipment_and_control_mass = calculate_equipment_and_control_mass(m0=m0)
+    equipment_and_control_mass = calculate_equipment_and_control_mass(
+        m0=m0,
+        trace=trace,
+        block_name=block_name,
+        iteration=iteration,
+    )
 
     additional_mass = m0 * settings.additional_mass_ratio
+
+    add_component_trace(
+        trace,
+        block_name=block_name,
+        iteration=iteration,
+        value_name="additional_mass",
+        formula=r"m_{add} = m_0 \cdot \bar{m}_{add}",
+        values={
+            "m0": m0,
+            "additional_mass_ratio": settings.additional_mass_ratio,
+        },
+        result=float(additional_mass),
+        unit="kg",
+        description="Additional placeholder mass.",
+    )
 
     return ComponentMassBreakdown(
         payload=payload_mass,
@@ -373,6 +474,9 @@ def calculate_wing_mass(
     preliminary_input: dict[str, Any],
     geometry_input: dict[str, Any],
     settings: ComponentMassSettings,
+    trace: CalculationTrace | None = None,
+    block_name: str = "mass_estimation",
+    iteration: int | None = None,
 ) -> float:
     lambda_wing = _get_number(preliminary_input, "Lambda")
     n_p = _get_number(preliminary_input, "n_max")
@@ -385,6 +489,21 @@ def calculate_wing_mass(
 
     # размах крыла
     wing_span = math.sqrt(S_W * lambda_wing)
+
+    add_component_trace(
+        trace,
+        block_name=block_name,
+        iteration=iteration,
+        value_name="wing_span",
+        formula=r"l = \sqrt{S_W \cdot \lambda}",
+        values={
+            "S_W": S_W,
+            "lambda_wing": lambda_wing,
+        },
+        result=float(wing_span),
+        unit="m",
+        description="Wing span used in component wing mass formulas.",
+    )
 
     k_m = settings.wing_material_factor
     c_bar = settings.wing_relative_thickness
@@ -411,6 +530,67 @@ def calculate_wing_mass(
 
     wing_mass = (m_wing_1 + m_wing_2) / 2.0
 
+    add_component_trace(
+        trace,
+        block_name=block_name,
+        iteration=iteration,
+        value_name="wing_mass_1",
+        formula=(
+            r"m_{wing,1} = 0.002 \cdot k_m \cdot m_0 \cdot n_p "
+            r"\cdot \left(0.6 \cdot \left(\frac{l}{2}\right)^2 + 1\right) "
+            r"+ 3 \cdot S_W"
+        ),
+        values={
+            "k_m": k_m,
+            "m0": m0,
+            "n_p": n_p,
+            "wing_span": wing_span,
+            "S_W": S_W,
+        },
+        result=float(m_wing_1),
+        unit="kg",
+        description="First wing mass estimate.",
+    )
+
+    add_component_trace(
+        trace,
+        block_name=block_name,
+        iteration=iteration,
+        value_name="wing_mass_2",
+        formula=(
+            r"m_{wing,2} = 0.001 \cdot k_m \cdot m_0 \cdot n_p "
+            r"\cdot \lambda \cdot (\eta + 3) "
+            r"\cdot \sqrt{\frac{S_W}{\eta}} \cdot \sqrt{\bar{c}}"
+        ),
+        values={
+            "k_m": k_m,
+            "m0": m0,
+            "n_p": n_p,
+            "lambda_wing": lambda_wing,
+            "eta": eta,
+            "S_W": S_W,
+            "c_bar": c_bar,
+        },
+        result=float(m_wing_2),
+        unit="kg",
+        description="Second wing mass estimate.",
+    )
+
+    add_component_trace(
+        trace,
+        block_name=block_name,
+        iteration=iteration,
+        value_name="wing_mass",
+        formula=r"m_{wing} = \frac{m_{wing,1} + m_{wing,2}}{2}",
+        values={
+            "m_wing_1": m_wing_1,
+            "m_wing_2": m_wing_2,
+        },
+        result=float(wing_mass),
+        unit="kg",
+        description="Mean wing mass estimate.",
+    )
+
     logger.debug(
         "Wing mass formulas: m1=%.3f kg, m2=%.3f kg, mean=%.3f kg",
         m_wing_1,
@@ -425,8 +605,26 @@ def calculate_fuselage_mass(
     *,
     m0: float,
     settings: ComponentMassSettings,
+    trace: CalculationTrace | None = None,
+    block_name: str = "mass_estimation",
+    iteration: int | None = None,
 ) -> float:
     g0_daN = m0 * STANDARD_GRAVITY
+
+    add_component_trace(
+        trace,
+        block_name=block_name,
+        iteration=iteration,
+        value_name="G0_for_fuselage",
+        formula=r"G_0 = m_0 \cdot g",
+        values={
+            "m0": m0,
+            "g": STANDARD_GRAVITY,
+        },
+        result=float(g0_daN),
+        unit="daN",
+        description="Aircraft weight-like value used by fuselage empirical formula.",
+    )
 
 
     g_fuselage_daN = (
@@ -436,6 +634,22 @@ def calculate_fuselage_mass(
     )
 
     fuselage_mass = g_fuselage_daN / STANDARD_GRAVITY
+
+    add_component_trace(
+        trace,
+        block_name=block_name,
+        iteration=iteration,
+        value_name="fuselage_mass",
+        formula=r"m_f = \frac{0.584 \cdot k_{cx} \cdot G_0^{0.771}}{g}",
+        values={
+            "G0": g0_daN,
+            "k_cx": settings.fuselage_engine_mount_factor,
+            "g": STANDARD_GRAVITY,
+        },
+        result=float(fuselage_mass),
+        unit="kg",
+        description="Fuselage mass empirical estimate.",
+    )
 
     logger.debug(
         "Fuselage mass formula: G_f=0.584*k_cx*G0^0.771 = %.3f daN = %.3f kg",
@@ -452,11 +666,44 @@ def calculate_tail_mass(
     p0_optimal: float,
     preliminary_input: dict[str, Any],
     geometry_input: dict[str, Any],
+    trace: CalculationTrace | None = None,
+    block_name: str = "mass_estimation",
+    iteration: int | None = None,
 ) -> float:
     v_cruise_mps = _get_number(preliminary_input, "V_cruise")
     v_cruise_kmh = v_cruise_mps * 3.6
 
+    add_component_trace(
+        trace,
+        block_name=block_name,
+        iteration=iteration,
+        value_name="V_cruise_kmh",
+        formula=r"V_{cruise,kmh} = 3.6 \cdot V_{cruise,mps}",
+        values={
+            "V_cruise_mps": v_cruise_mps,
+        },
+        result=float(v_cruise_kmh),
+        unit="km/h",
+        description="Cruise speed conversion for tail mass formulas.",
+    )
+
     wing_area = m0 * STANDARD_GRAVITY / p0_optimal
+
+    add_component_trace(
+        trace,
+        block_name=block_name,
+        iteration=iteration,
+        value_name="wing_area_for_tail",
+        formula=r"S_W = \frac{m_0 \cdot g}{p_0}",
+        values={
+            "m0": m0,
+            "g": STANDARD_GRAVITY,
+            "p0_optimal": p0_optimal,
+        },
+        result=float(wing_area),
+        unit="m²",
+        description="Wing area used to estimate tail areas.",
+    )
 
     k_horizontal_tail = _get_optional_number(
         geometry_input,
@@ -472,10 +719,91 @@ def calculate_tail_mass(
     s_ht = k_horizontal_tail * wing_area
     s_vt = k_vertical_tail * wing_area
 
+    add_component_trace(
+        trace,
+        block_name=block_name,
+        iteration=iteration,
+        value_name="horizontal_tail_area",
+        formula=r"S_{ht} = k_{ht} \cdot S_W",
+        values={
+            "k_horizontal_tail": k_horizontal_tail,
+            "wing_area": wing_area,
+        },
+        result=float(s_ht),
+        unit="m²",
+        description="Horizontal tail area.",
+    )
+
+    add_component_trace(
+        trace,
+        block_name=block_name,
+        iteration=iteration,
+        value_name="vertical_tail_area",
+        formula=r"S_{vt} = k_{vt} \cdot S_W",
+        values={
+            "k_vertical_tail": k_vertical_tail,
+            "wing_area": wing_area,
+        },
+        result=float(s_vt),
+        unit="m²",
+        description="Vertical tail area.",
+    )
+
     m_ht = 7.2 * s_ht**1.2 * (0.4 + (v_cruise_kmh + 113.0) / 935.0)
     m_vt = 6.8 * s_vt**1.2 * (0.4 + 7.0 * (v_cruise_kmh + 113.0) / 1100.0)
 
     tail_mass = m_ht + m_vt
+
+    add_component_trace(
+        trace,
+        block_name=block_name,
+        iteration=iteration,
+        value_name="horizontal_tail_mass",
+        formula=(
+            r"m_{ht} = 7.2 \cdot S_{ht}^{1.2} "
+            r"\cdot \left(0.4 + \frac{V_{cruise} + 113}{935}\right)"
+        ),
+        values={
+            "S_ht": s_ht,
+            "V_cruise_kmh": v_cruise_kmh,
+        },
+        result=float(m_ht),
+        unit="kg",
+        description="Horizontal tail mass estimate.",
+    )
+
+    add_component_trace(
+        trace,
+        block_name=block_name,
+        iteration=iteration,
+        value_name="vertical_tail_mass",
+        formula=(
+            r"m_{vt} = 6.8 \cdot S_{vt}^{1.2} "
+            r"\cdot \left(0.4 + \frac{7 \cdot (V_{cruise} + 113)}{1100}\right)"
+        ),
+        values={
+            "S_vt": s_vt,
+            "V_cruise_kmh": v_cruise_kmh,
+        },
+        result=float(m_vt),
+        unit="kg",
+        description="Vertical tail mass estimate.",
+    )
+
+    add_component_trace(
+        trace,
+        block_name=block_name,
+        iteration=iteration,
+        value_name="tail_mass",
+        formula=r"m_{tail} = m_{ht} + m_{vt}",
+        values={
+            "m_ht": m_ht,
+            "m_vt": m_vt,
+        },
+        result=float(tail_mass),
+        unit="kg",
+        description="Total tail mass.",
+    )
 
     logger.debug(
         "Tail mass formulas: m_ht=%.3f kg, m_vt=%.3f kg, total=%.3f kg",
@@ -493,14 +821,34 @@ def calculate_powerplant_mass(
     p0_optimal: float,
     preliminary_input: dict[str, Any],
     settings: ComponentMassSettings,
+    trace: CalculationTrace | None = None,
+    block_name: str = "mass_estimation",
+    iteration: int | None = None,
 ) -> float:
     specific_power = calculate_specific_power(
         p0_optimal=p0_optimal,
         preliminary_input=preliminary_input,
         propeller_efficiency=settings.propeller_efficiency,
+        trace=trace,
+        block_name=block_name,
+        iteration=iteration,
     )
 
     total_power = specific_power * m0
+
+    add_component_trace(
+        trace,
+        block_name=block_name,
+        iteration=iteration,
+        value_name="total_power",
+        formula=r"N_0 = \bar{N}_0 \cdot m_0",
+        values={
+            "specific_power": specific_power,
+            "m0": m0,
+        },
+        result=float(total_power),
+        description="Total required power-like value.",
+    )
 
     if settings.engine_type == ENGINE_ELECTRIC:
         powerplant_mass = 0.4695 * specific_power * m0
@@ -508,6 +856,21 @@ def calculate_powerplant_mass(
         logger.debug(
             "Electric powerplant mass: m_su=0.4695*Nbar*m0 = %.3f kg",
             powerplant_mass,
+        )
+
+        add_component_trace(
+            trace,
+            block_name=block_name,
+            iteration=iteration,
+            value_name="electric_powerplant_mass",
+            formula=r"m_{su} = 0.4695 \cdot \bar{N}_0 \cdot m_0",
+            values={
+                "specific_power": specific_power,
+                "m0": m0,
+            },
+            result=float(powerplant_mass),
+            unit="kg",
+            description="Electric powerplant mass estimate.",
         )
 
         return powerplant_mass
@@ -536,6 +899,42 @@ def calculate_powerplant_mass(
 
     powerplant_mass = total_power * (gamma_engine + k_su)
 
+    add_component_trace(
+        trace,
+        block_name=block_name,
+        iteration=iteration,
+        value_name="gamma_engine",
+        formula=(
+            r"\gamma_{engine} = 0.9 - 0.012 \cdot \sqrt{N_0}"
+            if settings.engine_type == ENGINE_PISTON_AIR
+            else r"\gamma_{engine} = 1.0 - 0.012 \cdot \sqrt{N_0}"
+            if settings.engine_type == ENGINE_PISTON_LIQUID
+            else r"\gamma_{engine} = 0.2"
+        ),
+        values={
+            "engine_type": settings.engine_type,
+            "total_power": total_power,
+        },
+        result=float(gamma_engine),
+        description="Engine specific mass coefficient.",
+    )
+
+    add_component_trace(
+        trace,
+        block_name=block_name,
+        iteration=iteration,
+        value_name="powerplant_mass",
+        formula=r"m_{su} = N_0 \cdot (\gamma_{engine} + k_{su})",
+        values={
+            "total_power": total_power,
+            "gamma_engine": gamma_engine,
+            "k_su": k_su,
+        },
+        result=float(powerplant_mass),
+        unit="kg",
+        description="Powerplant mass estimate.",
+    )
+
     logger.debug(
         "Powerplant mass: total_power=%.5f, gamma=%.5f, k_su=%.5f, mass=%.3f kg",
         total_power,
@@ -552,6 +951,9 @@ def calculate_specific_power(
     p0_optimal: float,
     preliminary_input: dict[str, Any],
     propeller_efficiency: float,
+    trace: CalculationTrace | None = None,
+    block_name: str = "mass_estimation",
+    iteration: int | None = None,
 ) -> float:
     rho = _get_number(preliminary_input, "pho_V_cruise")
     v_cruise = _get_number(preliminary_input, "V_cruise")
@@ -562,6 +964,35 @@ def calculate_specific_power(
     q_dynamic = rho * v_cruise**2 / 2.0
     k_ind = 1.0 / (math.pi * e * lambda_wing)
 
+    add_component_trace(
+        trace,
+        block_name=block_name,
+        iteration=iteration,
+        value_name="q_dynamic",
+        formula=r"q = \frac{\rho \cdot V^2}{2}",
+        values={
+            "rho": rho,
+            "V_cruise": v_cruise,
+        },
+        result=float(q_dynamic),
+        unit="Pa",
+        description="Dynamic pressure at cruise.",
+    )
+
+    add_component_trace(
+        trace,
+        block_name=block_name,
+        iteration=iteration,
+        value_name="k_ind",
+        formula=r"k_{ind} = \frac{1}{\pi \cdot e \cdot \lambda}",
+        values={
+            "e": e,
+            "lambda_wing": lambda_wing,
+        },
+        result=float(k_ind),
+        description="Induced drag factor.",
+    )
+
     specific_power = (
         1.0
         / propeller_efficiency
@@ -569,6 +1000,28 @@ def calculate_specific_power(
             q_dynamic * c_x0 / (p0_optimal * v_cruise)
             + p0_optimal * k_ind / (q_dynamic * v_cruise)
         )
+    )
+
+    add_component_trace(
+        trace,
+        block_name=block_name,
+        iteration=iteration,
+        value_name="specific_power",
+        formula=(
+            r"\bar{N}_0 = \frac{1}{\eta_v} \cdot "
+            r"\left(\frac{q \cdot C_{x0}}{p_0 \cdot V} + "
+            r"\frac{p_0 \cdot k_{ind}}{q \cdot V}\right)"
+        ),
+        values={
+            "propeller_efficiency": propeller_efficiency,
+            "q_dynamic": q_dynamic,
+            "C_x0": c_x0,
+            "p0_optimal": p0_optimal,
+            "V_cruise": v_cruise,
+            "k_ind": k_ind,
+        },
+        result=float(specific_power),
+        description="Specific power-like value for powerplant mass formulas.",
     )
 
     logger.debug(
@@ -583,9 +1036,25 @@ def calculate_landing_gear_mass(
     *,
     m0: float,
     settings: ComponentMassSettings,
+    trace: CalculationTrace | None = None,
+    block_name: str = "mass_estimation",
+    iteration: int | None = None,
 ) -> float:
     if settings.landing_gear_type == GEAR_NONE:
         logger.debug("Landing gear type is 'нет': landing gear mass = 0 kg")
+        add_component_trace(
+            trace,
+            block_name=block_name,
+            iteration=iteration,
+            value_name="landing_gear_mass",
+            formula=r"m_{gear} = 0",
+            values={
+                "landing_gear_type": settings.landing_gear_type,
+            },
+            result=0.0,
+            unit="kg",
+            description="No landing gear mass.",
+        )
         return 0.0
 
     g0_daN = kg_to_daN(m0)
@@ -604,6 +1073,23 @@ def calculate_landing_gear_mass(
     h = settings.landing_gear_strut_length_m
 
     g_gear_base_daN = k_material * k_fairing * (11.7 + 6.0 * h) * 1e-3 * g0_daN
+
+    add_component_trace(
+        trace,
+        block_name=block_name,
+        iteration=iteration,
+        value_name="landing_gear_base_weight",
+        formula=r"G_{gear,base} = k_{mat} \cdot k_{fair} \cdot (11.7 + 6h) \cdot 10^{-3} \cdot G_0",
+        values={
+            "k_material": k_material,
+            "k_fairing": k_fairing,
+            "h": h,
+            "G0": g0_daN,
+        },
+        result=float(g_gear_base_daN),
+        unit="daN",
+        description="Base landing gear weight estimate.",
+    )
 
     if settings.landing_gear_type == GEAR_SKI:
         g_gear_total_daN = g_gear_base_daN + 0.032 * g0_daN
@@ -630,6 +1116,22 @@ def calculate_landing_gear_mass(
         landing_gear_mass,
     )
 
+    add_component_trace(
+        trace,
+        block_name=block_name,
+        iteration=iteration,
+        value_name="landing_gear_mass",
+        formula=r"m_{gear} = \frac{G_{gear,total} \cdot 10}{g}",
+        values={
+            "landing_gear_type": settings.landing_gear_type,
+            "G_gear_total_daN": g_gear_total_daN,
+            "g": STANDARD_GRAVITY,
+        },
+        result=float(landing_gear_mass),
+        unit="kg",
+        description="Landing gear mass estimate.",
+    )
+
     return landing_gear_mass
 
 
@@ -639,8 +1141,24 @@ def calculate_battery_mass(
     preliminary_input: dict[str, Any],
     mass_input: dict[str, Any],
     settings: ComponentMassSettings,
+    trace: CalculationTrace | None = None,
+    block_name: str = "mass_estimation",
+    iteration: int | None = None,
 ) -> float:
     if settings.engine_type != ENGINE_ELECTRIC:
+        add_component_trace(
+            trace,
+            block_name=block_name,
+            iteration=iteration,
+            value_name="battery_mass",
+            formula=r"m_{battery} = 0",
+            values={
+                "engine_type": settings.engine_type,
+            },
+            result=0.0,
+            unit="kg",
+            description="Battery mass is zero for non-electric powerplant.",
+        )
         return 0.0
 
     h_cruise = settings.cruise_altitude_m
@@ -662,6 +1180,44 @@ def calculate_battery_mass(
 
     battery_mass = battery_mass_ratio * m0
 
+    add_component_trace(
+        trace,
+        block_name=block_name,
+        iteration=iteration,
+        value_name="battery_mass_ratio",
+        formula=(
+            r"\bar{m}_{battery} = "
+            r"\frac{g \cdot \left(H + \frac{0.5V^2}{g} + \frac{L}{K}\right)}"
+            r"{3600 \cdot q \cdot \eta_{su}}"
+        ),
+        values={
+            "g": STANDARD_GRAVITY,
+            "H": h_cruise,
+            "V_cruise": v_cruise,
+            "design_range_m": design_range_m,
+            "aerodynamic_quality": aerodynamic_quality,
+            "q_battery": q_battery,
+            "eta_su": eta_su,
+        },
+        result=float(battery_mass_ratio),
+        description="Relative battery mass.",
+    )
+
+    add_component_trace(
+        trace,
+        block_name=block_name,
+        iteration=iteration,
+        value_name="battery_mass",
+        formula=r"m_{battery} = \bar{m}_{battery} \cdot m_0",
+        values={
+            "battery_mass_ratio": battery_mass_ratio,
+            "m0": m0,
+        },
+        result=float(battery_mass),
+        unit="kg",
+        description="Battery mass estimate.",
+    )
+
     logger.debug(
         "Battery mass: mbar=%.5f, m_battery=%.3f kg",
         battery_mass_ratio,
@@ -671,7 +1227,13 @@ def calculate_battery_mass(
     return battery_mass
 
 
-def calculate_equipment_and_control_mass(*, m0: float) -> float:
+def calculate_equipment_and_control_mass(
+    *,
+    m0: float,
+    trace: CalculationTrace | None = None,
+    block_name: str = "mass_estimation",
+    iteration: int | None = None,
+) -> float:
     g0_daN = kg_to_daN(m0)
     g_equipment_daN = 0.00635 * g0_daN**1.37
     equipment_mass = daN_to_kg(g_equipment_daN)
@@ -680,6 +1242,21 @@ def calculate_equipment_and_control_mass(*, m0: float) -> float:
         "Equipment and control mass: G=0.00635*G0^1.37 = %.3f daN = %.3f kg",
         g_equipment_daN,
         equipment_mass,
+    )
+
+    add_component_trace(
+        trace,
+        block_name=block_name,
+        iteration=iteration,
+        value_name="equipment_and_control_mass",
+        formula=r"m_{eq} = \frac{0.00635 \cdot G_0^{1.37} \cdot 10}{g}",
+        values={
+            "G0_daN": g0_daN,
+            "g": STANDARD_GRAVITY,
+        },
+        result=float(equipment_mass),
+        unit="kg",
+        description="Equipment and control mass estimate.",
     )
 
     return equipment_mass

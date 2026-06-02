@@ -137,9 +137,9 @@ def _format_trace_record_markdown(
         [
             "**Formula:**",
             "",
-            "```text",
+            "$$",
             record.formula,
-            "```",
+            "$$",
             "",
         ]
     )

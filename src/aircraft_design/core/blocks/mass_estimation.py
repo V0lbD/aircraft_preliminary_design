@@ -409,10 +409,34 @@ class MassEstimationBlock(BaseBlock):
         for mass_fraction in mission_segments.values():
             M_ff_non_cruise *= mass_fraction
 
+        state.add_trace(
+            block_name=self.name,
+            value_name="M_ff_non_cruise",
+            formula=r"M_{ff,noncruise} = \prod_i M_{ff,i}",
+            values=mission_segments,
+            result=float(M_ff_non_cruise),
+            description="Total mission mass fraction for non-cruise segments.",
+        )
+
         # todo: разобраться, надо ли домножать на 3.6
         breguet_range_factor = (
             cruise_l_d_ratio * cruise_velocity
         ) / (cruise_sfc * STANDARD_GRAVITY)
+
+        state.add_trace(
+            block_name=self.name,
+            value_name="breguet_range_factor",
+            formula=r"B = \frac{K \cdot V_{cruise}}{c \cdot g}",
+            values={
+                "cruise_L_D_ratio": cruise_l_d_ratio,
+                "V_cruise": cruise_velocity,
+                "cruise_sfc": cruise_sfc,
+                "g": STANDARD_GRAVITY,
+            },
+            result=float(breguet_range_factor),
+            unit="m",
+            description="Breguet range factor.",
+        )
 
         if breguet_range_factor <= 0:
             raise InputValidationError(
@@ -436,7 +460,32 @@ class MassEstimationBlock(BaseBlock):
 
         M_ff_total = M_ff_non_cruise * M_ff_cruise
 
+        state.add_trace(
+            block_name=self.name,
+            value_name="M_ff_total",
+            formula=r"M_{ff,total} = M_{ff,noncruise} \cdot M_{ff,cruise}",
+            values={
+                "M_ff_non_cruise": M_ff_non_cruise,
+                "M_ff_cruise": M_ff_cruise,
+            },
+            result=float(M_ff_total),
+            description="Total mission mass fraction.",
+        )
+
         m_F_ratio = fuel_reserve_factor * (1.0 - M_ff_total)
+
+        state.add_trace(
+            block_name=self.name,
+            value_name="m_F_ratio",
+            formula=r"\bar{m}_F = k_{reserve} \cdot (1 - M_{ff,total})",
+            values={
+                "fuel_reserve_factor": fuel_reserve_factor,
+                "M_ff_total": M_ff_total,
+            },
+            result=float(m_F_ratio),
+            description="Fuel mass ratio.",
+        )
+
         # propeller_efficiency=float(state.project_input.mass_estimation.get("propeller_efficiency", 0.8))
 
         # todo: потом убрать
@@ -460,6 +509,18 @@ class MassEstimationBlock(BaseBlock):
 
         denominator = 1.0 - m_F_ratio - m_OE_ratio
 
+        state.add_trace(
+            block_name=self.name,
+            value_name="mass_balance_denominator",
+            formula=r"D = 1 - \bar{m}_F - \bar{m}_{OE}",
+            values={
+                "m_F_ratio": m_F_ratio,
+                "m_OE_ratio": m_OE_ratio,
+            },
+            result=float(denominator),
+            description="Mass balance denominator for takeoff mass estimate.",
+        )
+
         if denominator <= 0:
             raise InputValidationError(
                 "Cannot calculate maximum takeoff mass: "
@@ -469,16 +530,20 @@ class MassEstimationBlock(BaseBlock):
             )
 
         m_MTO = payload_mass / denominator
+
         state.add_trace(
             block_name=self.name,
-            value_name="M_ff_cruise",
-            formula="M_ff_cruise = exp(-design_range_m / breguet_range_factor)",
+            value_name="m_MTO_base",
+            formula=r"m_{MTO} = \frac{m_{payload}}{1 - \bar{m}_F - \bar{m}_{OE}}",
             values={
-                "design_range_m": design_range_m,
-                "breguet_range_factor": breguet_range_factor,
+                "payload_mass": payload_mass,
+                "m_F_ratio": m_F_ratio,
+                "m_OE_ratio": m_OE_ratio,
+                "denominator": denominator,
             },
-            result=float(M_ff_cruise),
-            description="Cruise mission fuel fraction from Breguet range relation.",
+            result=float(m_MTO),
+            unit="kg",
+            description="Base maximum takeoff mass estimate before component iteration.",
         )
 
         m_OE = m_MTO * m_OE_ratio
@@ -487,6 +552,47 @@ class MassEstimationBlock(BaseBlock):
         useful_load_ratio = (m_F + payload_mass) / m_MTO
 
         T_TO = m_MTO * STANDARD_GRAVITY * P0_optimal
+
+        state.add_trace(
+            block_name=self.name,
+            value_name="m_OE_base",
+            formula=r"m_{OE} = m_{MTO} \cdot \bar{m}_{OE}",
+            values={
+                "m_MTO": m_MTO,
+                "m_OE_ratio": m_OE_ratio,
+            },
+            result=float(m_OE),
+            unit="kg",
+            description="Base operating empty mass estimate.",
+        )
+
+        state.add_trace(
+            block_name=self.name,
+            value_name="m_F_base",
+            formula=r"m_F = m_{MTO} \cdot \bar{m}_F",
+            values={
+                "m_MTO": m_MTO,
+                "m_F_ratio": m_F_ratio,
+            },
+            result=float(m_F),
+            unit="kg",
+            description="Base fuel mass estimate.",
+        )
+
+        state.add_trace(
+            block_name=self.name,
+            value_name="T_TO_base",
+            formula=r"T_{TO} = m_{MTO} \cdot g \cdot P_0",
+            values={
+                "m_MTO": m_MTO,
+                "g": STANDARD_GRAVITY,
+                "P0_optimal": P0_optimal,
+            },
+            result=float(T_TO),
+            unit="N",
+            description="Base takeoff thrust estimate.",
+        )
+
         S_W = m_MTO / p0_optimal
         state.add_trace(
             block_name=self.name,
@@ -511,6 +617,8 @@ class MassEstimationBlock(BaseBlock):
             preliminary_input=preliminary_input,
             mass_input=section,
             geometry_input=state.project_input.geometry,
+            trace=state.trace,
+            block_name=self.name,
         )
 
         if component_iteration.enabled:
