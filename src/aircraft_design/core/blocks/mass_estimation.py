@@ -626,8 +626,9 @@ class MassEstimationBlock(BaseBlock):
                 block_name=self.name,
                 value_name="component_mass_iteration",
                 formula=(
-                    "m0_new = payload + fuel + wing + fuselage + tail + "
-                    "powerplant + landing_gear + battery + equipment_and_control + additional"
+                    r"m_{0,new} = m_{payload} + m_F + m_{wing} + m_{fuselage} + "
+                    r"m_{tail} + m_{powerplant} + m_{gear} + m_{battery} + "
+                    r"m_{equipment} + m_{additional}"
                 ),
                 values={
                     "initial_m0": component_iteration.initial_m0,

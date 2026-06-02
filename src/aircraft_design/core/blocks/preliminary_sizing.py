@@ -287,11 +287,37 @@ class PreliminarySizingBlock(BaseBlock):
         logger.debug("C_x for max K: %s", C_x)
         logger.debug("C_y for max K: %s", C_y)
 
+        state.add_trace(
+            block_name=self.name,
+            value_name="Cx_for_max_K",
+            formula=r"C_x = C_{x0} + \frac{C_y^2}{\pi e \lambda}",
+            values={
+                "C_x0": C_x0,
+                "C_y": C_y,
+                "e": e,
+                "Lambda": aspect_ratio,
+            },
+            result=float(C_x),
+            description="Коэффициент сопротивления для найденного максимального аэродинамического качества.",
+        )
+
+        state.add_trace(
+            block_name=self.name,
+            value_name="K_max",
+            formula=r"K_{max} = \frac{C_y}{C_x}",
+            values={
+                "C_y": C_y,
+                "C_x": C_x,
+            },
+            result=float(C_y / C_x),
+            description="Максимальное аэродинамическое качество по текущему численному поиску.",
+        )
+
         p0_by_V_s = 0.5 * pho_V_s * V_s**2 * C_y_max
         state.add_trace(
             block_name=self.name,
             value_name="p0_by_V_s",
-            formula="p0_by_V_s = 0.5 * pho_V_s * V_s^2 * C_y_max",
+            formula=r"p_{0,V_s} = \frac{1}{2} \cdot \rho_{V_s} \cdot V_s^2 \cdot C_{y,max}",
             values={
                 "pho_V_s": pho_V_s,
                 "V_s": V_s,
@@ -299,7 +325,7 @@ class PreliminarySizingBlock(BaseBlock):
             },
             result=float(p0_by_V_s),
             unit="N/m²",
-            description="Wing loading limit from stall speed.",
+            description="Ограничение по скорости сваливания.",
         )
 
         if N == 1:
@@ -312,8 +338,11 @@ class PreliminarySizingBlock(BaseBlock):
             block_name=self.name,
             value_name="P0_by_theta",
             formula=(
-                "P0_by_theta = theta + 2 * sqrt(C_x0 / (pi * Lambda * e)) "
-                "for N = 1, otherwise multiplied by N / (N - 1)"
+                r"P_{0,\theta} = "
+                r"\begin{cases}"
+                r"\theta + 2\sqrt{\frac{C_{x0}}{\pi \lambda e}}, & N = 1 \\ "
+                r"\frac{N}{N - 1}\left(\theta + 2\sqrt{\frac{C_{x0}}{\pi \lambda e}}\right), & N > 1"
+                r"\end{cases}"
             ),
             values={
                 "N": N,
@@ -323,7 +352,7 @@ class PreliminarySizingBlock(BaseBlock):
                 "e": e,
             },
             result=float(P0_by_theta),
-            description="Thrust-to-weight limit from climb gradient.",
+            description="Ограничение по градиенту набора высоты.",
         )
 
         p0_range = (10.0, p0_by_V_s * 1.2)
@@ -399,20 +428,136 @@ class PreliminarySizingBlock(BaseBlock):
             P0_by_V_y_points=P0_by_V_y_points,
             P0_by_V_cruise_points=P0_by_V_cruise_points,
         )
+
+        P0_by_n_max_at_optimal = self._interpolate_constraint_value(
+            P0_by_n_max_points,
+            p0_optimal,
+        )
+        P0_by_L_TODA_at_optimal = self._interpolate_constraint_value(
+            P0_by_L_TODA_points,
+            p0_optimal,
+        )
+        P0_by_V_y_at_optimal = self._interpolate_constraint_value(
+            P0_by_V_y_points,
+            p0_optimal,
+        )
+        P0_by_V_cruise_at_optimal = self._interpolate_constraint_value(
+            P0_by_V_cruise_points,
+            p0_optimal,
+        )
+
+        state.add_trace(
+            block_name=self.name,
+            value_name="P0_by_n_max",
+            formula=(
+                r"P_{0,n_{max}}(p_0) = "
+                r"\frac{C_{x0} \cdot \frac{1}{2}\rho_{cr}V_{cr}^2}{p_0}"
+                r" + "
+                r"p_0 \cdot \frac{n_{max}^2}"
+                r"{\pi \lambda e \cdot \frac{1}{2}\rho_{cr}V_{cr}^2}"
+            ),
+            values={
+                "p0_optimal": p0_optimal,
+                "C_x0": C_x0,
+                "pho_V_cruise": pho_V_cruise,
+                "V_cruise": V_cruise,
+                "n_max": n_max,
+                "Lambda": aspect_ratio,
+                "e": e,
+                "points_count": len(P0_by_n_max_points),
+            },
+            result=P0_by_n_max_at_optimal,
+            description="Ограничение по максимальной эксплуатационной перегрузке. В trace указан результат в оптимальной точке.",
+        )
+
+        state.add_trace(
+            block_name=self.name,
+            value_name="P0_by_L_TODA",
+            formula=(
+                r"P_{0,L_{TODA}}(p_0) = "
+                r"\frac{p_0}{L_{TODA}} \cdot "
+                r"\frac{1}{C_{y,max,TO}} \cdot "
+                r"\frac{1}{\sigma}"
+            ),
+            values={
+                "p0_optimal": p0_optimal,
+                "L_TODA": L_TODA,
+                "C_y_max_TO": C_y_max_TO,
+                "sigma": sigma,
+                "points_count": len(P0_by_L_TODA_points),
+            },
+            result=P0_by_L_TODA_at_optimal,
+            description="Ограничение по взлётной дистанции. В trace указан результат в оптимальной точке.",
+        )
+
+        state.add_trace(
+            block_name=self.name,
+            value_name="P0_by_V_y",
+            formula=(
+                r"P_{0,V_y}(p_0) = "
+                r"\frac{V_y}"
+                r"{\sqrt{p_0}\sqrt{\frac{2}{\rho_{V_y}}\frac{1}{C_y}}}"
+                r" + \frac{C_x}{C_y}"
+            ),
+            values={
+                "p0_optimal": p0_optimal,
+                "V_y": V_y,
+                "pho_V_y": pho_V_y,
+                "C_x": C_x,
+                "C_y": C_y,
+                "points_count": len(P0_by_V_y_points),
+            },
+            result=P0_by_V_y_at_optimal,
+            description="Ограничение по скороподъёмности. В trace указан результат в оптимальной точке.",
+        )
+
+        state.add_trace(
+            block_name=self.name,
+            value_name="P0_by_V_cruise",
+            formula=(
+                r"P_{0,V_{cr}}(p_0) = "
+                r"\frac{C_{x0} \cdot \frac{1}{2}\rho_{cr}V_{cr}^2}{p_0}"
+                r" + "
+                r"p_0 \cdot \frac{1}"
+                r"{\pi \lambda e \cdot \frac{1}{2}\rho_{cr}V_{cr}^2}"
+            ),
+            values={
+                "p0_optimal": p0_optimal,
+                "C_x0": C_x0,
+                "pho_V_cruise": pho_V_cruise,
+                "V_cruise": V_cruise,
+                "Lambda": aspect_ratio,
+                "e": e,
+                "points_count": len(P0_by_V_cruise_points),
+            },
+            result=P0_by_V_cruise_at_optimal,
+            description="Ограничение по крейсерскому полёту. В trace указан результат в оптимальной точке.",
+        )
+
         state.add_trace(
             block_name=self.name,
             value_name="optimal_point",
-            formula="optimal_point = min envelope of active constraints over p0 grid",
+            formula=(
+                r"P_{0,envelope}(p_0) = "
+                r"\max\left(P_{0,\theta}, P_{0,n_{max}}, P_{0,L_{TODA}}, "
+                r"P_{0,V_y}, P_{0,V_{cr}}\right)"
+                r", \quad "
+                r"(p_{0,opt}, P_{0,opt}) = \arg\min P_{0,envelope}(p_0)"
+            ),
             values={
                 "p0_by_V_s": float(p0_by_V_s),
                 "P0_by_theta": float(P0_by_theta),
+                "P0_by_n_max_at_optimal": P0_by_n_max_at_optimal,
+                "P0_by_L_TODA_at_optimal": P0_by_L_TODA_at_optimal,
+                "P0_by_V_y_at_optimal": P0_by_V_y_at_optimal,
+                "P0_by_V_cruise_at_optimal": P0_by_V_cruise_at_optimal,
                 "active_constraints": active_constraints,
             },
             result={
                 "p0_optimal": float(p0_optimal),
                 "P0_optimal": float(P0_optimal),
             },
-            description="Selected preliminary design point.",
+            description="Выбор расчётной точки по огибающей ограничений.",
         )
 
         active_constraint_items = [
@@ -598,3 +743,26 @@ class PreliminarySizingBlock(BaseBlock):
             active_constraints.append(15)
 
         return optimal_p0, optimal_P0, sorted(active_constraints)
+
+
+    @staticmethod
+    def _interpolate_constraint_value(
+        points: list[tuple[float, float]],
+        p0: float,
+    ) -> float | None:
+        if not points:
+            return None
+
+        sorted_points = sorted(points, key=lambda item: item[0])
+        p0_values = [point[0] for point in sorted_points]
+        P0_values = [point[1] for point in sorted_points]
+
+        return float(
+            np.interp(
+                p0,
+                p0_values,
+                P0_values,
+                left=P0_values[0],
+                right=P0_values[-1],
+            )
+        )

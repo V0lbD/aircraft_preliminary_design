@@ -51,6 +51,13 @@ def add_component_trace(
     if trace is None:
         return
 
+    # Do not duplicate the same component formulas for every iteration.
+    # For engineering review, the first iteration is enough to inspect
+    # formulas and substitutions. The final result is traced separately
+    # by component_mass_iteration summary.
+    if iteration is not None and iteration != 1:
+        return
+
     trace_values = dict(values)
 
     if iteration is not None:
