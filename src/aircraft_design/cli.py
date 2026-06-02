@@ -9,6 +9,8 @@ from aircraft_design.io import (
     load_project_input,
     write_json_data,
     write_json_result,
+    write_trace_json,
+    write_trace_markdown,
     write_txt_result,
 )
 from aircraft_design.logging_config import configure_logging
@@ -65,6 +67,20 @@ def build_parser() -> argparse.ArgumentParser:
             "Enable calculation trace. "
             "Use --no-trace to disable detailed formula trace."
         ),
+    )
+
+    parser.add_argument(
+        "--trace-md",
+        dest="trace_md_path",
+        default=None,
+        help="Path to write human-readable calculation trace Markdown file.",
+    )
+
+    parser.add_argument(
+        "--trace-json",
+        dest="trace_json_path",
+        default=None,
+        help="Path to write machine-readable calculation trace JSON file.",
     )
 
     parser.add_argument(
@@ -160,6 +176,16 @@ def run_batch_mode(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
         write_json_result(result, output_path)
     else:
         write_txt_result(result, output_path)
+
+    if args.trace_md_path:
+        trace_md_path = Path(args.trace_md_path)
+        logger.info("Writing Markdown trace file: %s", trace_md_path)
+        write_trace_markdown(result, trace_md_path)
+
+    if args.trace_json_path:
+        trace_json_path = Path(args.trace_json_path)
+        logger.info("Writing JSON trace file: %s", trace_json_path)
+        write_trace_json(result, trace_json_path)
 
     print(f"{output_format.upper()} result written to: {output_path}")
     return 0 if result.success else 1
