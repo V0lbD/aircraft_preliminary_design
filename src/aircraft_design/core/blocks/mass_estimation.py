@@ -388,12 +388,12 @@ class MassEstimationBlock(BaseBlock):
         state.add_trace(
             block_name=self.name,
             value_name="m_OE_ratio",
-            formula="m_OE_ratio = 0.23 + 1.04 * P0_optimal",
+            formula=r"\bar{m}_{OE} = 0.23 + 1.04 \cdot P_{0,opt}",
             values={
                 "P0_optimal": P0_optimal,
             },
             result=float(m_OE_ratio),
-            description="Estimated operating empty mass ratio.",
+            description="Относительная масса пустого самолёта по базовой оценочной формуле.",
         )
 
         mission_segments = {
@@ -415,7 +415,7 @@ class MassEstimationBlock(BaseBlock):
             formula=r"M_{ff,noncruise} = \prod_i M_{ff,i}",
             values=mission_segments,
             result=float(M_ff_non_cruise),
-            description="Total mission mass fraction for non-cruise segments.",
+            description="Произведение массовых долей для некрейсерских участков миссии.",
         )
 
         # todo: разобраться, надо ли домножать на 3.6
@@ -435,7 +435,7 @@ class MassEstimationBlock(BaseBlock):
             },
             result=float(breguet_range_factor),
             unit="m",
-            description="Breguet range factor.",
+            description="Фактор дальности в формуле Бреге.",
         )
 
         if breguet_range_factor <= 0:
@@ -449,13 +449,13 @@ class MassEstimationBlock(BaseBlock):
         state.add_trace(
             block_name=self.name,
             value_name="M_ff_cruise",
-            formula="M_ff_cruise = exp(-design_range_m / breguet_range_factor)",
+            formula=r"M_{ff,cruise} = \exp\left(-\frac{L}{B}\right)",
             values={
                 "design_range_m": design_range_m,
                 "breguet_range_factor": breguet_range_factor,
             },
             result=float(M_ff_cruise),
-            description="Cruise mission fuel fraction from Breguet range relation.",
+            description="Массовая доля для крейсерского участка по формуле Бреге.",
         )
 
         M_ff_total = M_ff_non_cruise * M_ff_cruise
@@ -469,7 +469,7 @@ class MassEstimationBlock(BaseBlock):
                 "M_ff_cruise": M_ff_cruise,
             },
             result=float(M_ff_total),
-            description="Total mission mass fraction.",
+            description="Полная массовая доля миссии.",
         )
 
         m_F_ratio = fuel_reserve_factor * (1.0 - M_ff_total)
@@ -477,13 +477,13 @@ class MassEstimationBlock(BaseBlock):
         state.add_trace(
             block_name=self.name,
             value_name="m_F_ratio",
-            formula=r"\bar{m}_F = k_{reserve} \cdot (1 - M_{ff,total})",
+            formula=r"\bar{m}_F = k_{reserve} \cdot \left(1 - M_{ff,total}\right)",
             values={
                 "fuel_reserve_factor": fuel_reserve_factor,
                 "M_ff_total": M_ff_total,
             },
             result=float(m_F_ratio),
-            description="Fuel mass ratio.",
+            description="Относительная масса топлива.",
         )
 
         # propeller_efficiency=float(state.project_input.mass_estimation.get("propeller_efficiency", 0.8))
@@ -518,7 +518,7 @@ class MassEstimationBlock(BaseBlock):
                 "m_OE_ratio": m_OE_ratio,
             },
             result=float(denominator),
-            description="Mass balance denominator for takeoff mass estimate.",
+            description="Знаменатель базового уравнения взлётной массы.",
         )
 
         if denominator <= 0:
@@ -543,15 +543,14 @@ class MassEstimationBlock(BaseBlock):
             },
             result=float(m_MTO),
             unit="kg",
-            description="Base maximum takeoff mass estimate before component iteration.",
+            description="Базовая максимальная взлётная масса до компонентного уточнения.",
         )
 
         m_OE = m_MTO * m_OE_ratio
         m_F = m_MTO * m_F_ratio
-
         useful_load_ratio = (m_F + payload_mass) / m_MTO
-
         T_TO = m_MTO * STANDARD_GRAVITY * P0_optimal
+        S_W = m_MTO / p0_optimal
 
         state.add_trace(
             block_name=self.name,
@@ -563,7 +562,7 @@ class MassEstimationBlock(BaseBlock):
             },
             result=float(m_OE),
             unit="kg",
-            description="Base operating empty mass estimate.",
+            description="Базовая масса пустого самолёта.",
         )
 
         state.add_trace(
@@ -576,13 +575,26 @@ class MassEstimationBlock(BaseBlock):
             },
             result=float(m_F),
             unit="kg",
-            description="Base fuel mass estimate.",
+            description="Базовая масса топлива.",
+        )
+
+        state.add_trace(
+            block_name=self.name,
+            value_name="useful_load_ratio",
+            formula=r"\bar{m}_{useful} = \frac{m_F + m_{payload}}{m_{MTO}}",
+            values={
+                "m_F": m_F,
+                "payload_mass": payload_mass,
+                "m_MTO": m_MTO,
+            },
+            result=float(useful_load_ratio),
+            description="Относительная масса полезной нагрузки и топлива.",
         )
 
         state.add_trace(
             block_name=self.name,
             value_name="T_TO_base",
-            formula=r"T_{TO} = m_{MTO} \cdot g \cdot P_0",
+            formula=r"T_{TO} = m_{MTO} \cdot g \cdot P_{0,opt}",
             values={
                 "m_MTO": m_MTO,
                 "g": STANDARD_GRAVITY,
@@ -590,22 +602,20 @@ class MassEstimationBlock(BaseBlock):
             },
             result=float(T_TO),
             unit="N",
-            description="Base takeoff thrust estimate.",
+            description="Базовая взлётная тяга.",
         )
 
-        S_W = m_MTO / p0_optimal
         state.add_trace(
             block_name=self.name,
             value_name="S_W",
-            formula="S_W = m_MTO / p0_optimal",
+            formula=r"S_W = \frac{m_{MTO}}{p_{0,opt}}",
             values={
                 "m_MTO": m_MTO,
-                "g": STANDARD_GRAVITY,
                 "p0_optimal": p0_optimal,
             },
             result=float(S_W),
             unit="m²",
-            description="Wing area from maximum takeoff mass and wing loading.",
+            description="Площадь крыла по взлётной массе и нагрузке на крыло.",
         )
 
         component_iteration = calculate_component_mass_iteration(

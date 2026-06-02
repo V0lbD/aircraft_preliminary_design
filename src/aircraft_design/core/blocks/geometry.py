@@ -274,26 +274,26 @@ class GeometryBlock(BaseBlock):
 
         # === Wing ===
         l_wing = math.sqrt(S_wing * lambda_wing)
-        state.add_trace(
-            block_name=self.name,
-            value_name="l_wing",
-            formula="l_wing = sqrt(S_wing * lambda_wing)",
+        self._add_trace(
+            state,
+            value_name="wing_span",
+            formula=r"l_{wing} = \sqrt{S_{wing} \cdot \lambda_{wing}}",
             values={
                 "S_wing": S_wing,
                 "lambda_wing": lambda_wing,
             },
             result=float(l_wing),
             unit="m",
-            description="Wing span from wing area and aspect ratio.",
+            description="Размах крыла.",
         )
 
         eta_wing = self._get_number(values, "eta_wing")
         b0_wing = (2.0 * S_wing) / (l_wing * (1.0 + 1.0 / eta_wing))
         bk_wing = b0_wing / eta_wing
-        state.add_trace(
-            block_name=self.name,
-            value_name="b0_wing",
-            formula="b0_wing = 2 * S_wing / (l_wing * (1 + 1 / eta_wing))",
+        self._add_trace(
+            state,
+            value_name="wing_root_chord",
+            formula=r"b_{0,wing} = \frac{2S_{wing}}{l_{wing}\left(1 + \frac{1}{\eta_{wing}}\right)}",
             values={
                 "S_wing": S_wing,
                 "l_wing": l_wing,
@@ -301,20 +301,20 @@ class GeometryBlock(BaseBlock):
             },
             result=float(b0_wing),
             unit="m",
-            description="Wing root chord.",
+            description="Корневая хорда крыла.",
         )
 
-        state.add_trace(
-            block_name=self.name,
-            value_name="bk_wing",
-            formula="bk_wing = b0_wing / eta_wing",
+        self._add_trace(
+            state,
+            value_name="wing_tip_chord",
+            formula=r"b_{k,wing} = \frac{b_{0,wing}}{\eta_{wing}}",
             values={
                 "b0_wing": b0_wing,
                 "eta_wing": eta_wing,
             },
             result=float(bk_wing),
             unit="m",
-            description="Wing tip chord.",
+            description="Концевая хорда крыла.",
         )
 
         sweep_wing_quarter = self._get_number(values, "sweep_wing_quarter")
@@ -325,26 +325,70 @@ class GeometryBlock(BaseBlock):
             span=l_wing,
         )
 
+        self._add_trace(
+            state,
+            value_name="wing_le_sweep",
+            formula=(
+                r"\chi_{LE} = \arctan\left("
+                r"\tan(\chi_{1/4}) + \frac{b_0 - b_k}{2l}"
+                r"\right)"
+            ),
+            values={
+                "sweep_wing_quarter": sweep_wing_quarter,
+                "b0_wing": b0_wing,
+                "bk_wing": bk_wing,
+                "l_wing": l_wing,
+            },
+            result=float(sweep_wing_LE),
+            unit="deg",
+            description="Стреловидность крыла по передней кромке.",
+        )
+
         # === Fuselage ===
         k_fuselage = self._get_number(values, "k_fuselage")
         lambda_fuselage = self._get_number(values, "lambda_fuselage")
 
         L_fuselage = k_fuselage * l_wing
-        state.add_trace(
-            block_name=self.name,
-            value_name="L_fuselage",
-            formula="L_fuselage = k_fuselage * l_wing",
+        d_fuselage = L_fuselage / lambda_fuselage
+        r_fuselage = d_fuselage / 2.0
+
+        self._add_trace(
+            state,
+            value_name="fuselage_length",
+            formula=r"L_f = k_f \cdot l_{wing}",
             values={
                 "k_fuselage": k_fuselage,
                 "l_wing": l_wing,
             },
             result=float(L_fuselage),
             unit="m",
-            description="Fuselage length estimate.",
+            description="Длина фюзеляжа.",
         )
 
-        d_fuselage = L_fuselage / lambda_fuselage
-        r_fuselage = d_fuselage / 2.0
+        self._add_trace(
+            state,
+            value_name="fuselage_diameter",
+            formula=r"d_f = \frac{L_f}{\lambda_f}",
+            values={
+                "L_fuselage": L_fuselage,
+                "lambda_fuselage": lambda_fuselage,
+            },
+            result=float(d_fuselage),
+            unit="m",
+            description="Диаметр фюзеляжа.",
+        )
+
+        self._add_trace(
+            state,
+            value_name="fuselage_radius",
+            formula=r"r_f = \frac{d_f}{2}",
+            values={
+                "d_fuselage": d_fuselage,
+            },
+            result=float(r_fuselage),
+            unit="m",
+            description="Радиус фюзеляжа.",
+        )
 
         wing_scheme = values["wing_scheme"]
 
@@ -357,6 +401,26 @@ class GeometryBlock(BaseBlock):
         else:
             y_wing = -d_fuselage / 2.0
             wing_scheme_ru = "низкоплан"
+
+        self._add_trace(
+            state,
+            value_name="wing_vertical_position",
+            formula=(
+                r"y_{wing} = "
+                r"\begin{cases}"
+                r"\frac{d_f}{2}, & \text{high wing} \\ "
+                r"0, & \text{mid wing} \\ "
+                r"-\frac{d_f}{2}, & \text{low wing}"
+                r"\end{cases}"
+            ),
+            values={
+                "wing_scheme": wing_scheme,
+                "d_fuselage": d_fuselage,
+            },
+            result=float(y_wing),
+            unit="m",
+            description="Вертикальное положение крыла относительно фюзеляжа.",
+        )
 
         x_fuselage = -7.0
 
@@ -374,6 +438,59 @@ class GeometryBlock(BaseBlock):
         b0_ht = (2.0 * S_ht) / (l_ht * (1.0 + 1.0 / eta_horizontal_tail))
         bk_ht = b0_ht / eta_horizontal_tail
 
+        self._add_trace(
+            state,
+            value_name="horizontal_tail_area",
+            formula=r"S_{ht} = k_{ht} \cdot S_{wing}",
+            values={
+                "k_horizontal_tail": k_horizontal_tail,
+                "S_wing": S_wing,
+            },
+            result=float(S_ht),
+            unit="m²",
+            description="Площадь горизонтального оперения.",
+        )
+
+        self._add_trace(
+            state,
+            value_name="horizontal_tail_span",
+            formula=r"l_{ht} = \sqrt{S_{ht} \cdot \lambda_{ht}}",
+            values={
+                "S_ht": S_ht,
+                "lambda_horizontal_tail": lambda_horizontal_tail,
+            },
+            result=float(l_ht),
+            unit="m",
+            description="Размах горизонтального оперения.",
+        )
+
+        self._add_trace(
+            state,
+            value_name="horizontal_tail_root_chord",
+            formula=r"b_{0,ht} = \frac{2S_{ht}}{l_{ht}\left(1 + \frac{1}{\eta_{ht}}\right)}",
+            values={
+                "S_ht": S_ht,
+                "l_ht": l_ht,
+                "eta_horizontal_tail": eta_horizontal_tail,
+            },
+            result=float(b0_ht),
+            unit="m",
+            description="Корневая хорда горизонтального оперения.",
+        )
+
+        self._add_trace(
+            state,
+            value_name="horizontal_tail_tip_chord",
+            formula=r"b_{k,ht} = \frac{b_{0,ht}}{\eta_{ht}}",
+            values={
+                "b0_ht": b0_ht,
+                "eta_horizontal_tail": eta_horizontal_tail,
+            },
+            result=float(bk_ht),
+            unit="m",
+            description="Концевая хорда горизонтального оперения.",
+        )
+
         sweep_ht_LE = self._calculate_le_sweep_angle(
             sweep_quarter_deg=sweep_horizontal_tail_quarter,
             root_chord=b0_ht,
@@ -381,8 +498,40 @@ class GeometryBlock(BaseBlock):
             span=l_ht,
         )
 
+        self._add_trace(
+            state,
+            value_name="horizontal_tail_le_sweep",
+            formula=(
+                r"\chi_{LE,ht} = \arctan\left("
+                r"\tan(\chi_{1/4,ht}) + \frac{b_{0,ht} - b_{k,ht}}{2l_{ht}}"
+                r"\right)"
+            ),
+            values={
+                "sweep_horizontal_tail_quarter": sweep_horizontal_tail_quarter,
+                "b0_ht": b0_ht,
+                "bk_ht": bk_ht,
+                "l_ht": l_ht,
+            },
+            result=float(sweep_ht_LE),
+            unit="deg",
+            description="Стреловидность горизонтального оперения по передней кромке.",
+        )
+
         x_ht = x_fuselage + 0.75 * L_fuselage
         y_ht = 0.0
+
+        self._add_trace(
+            state,
+            value_name="horizontal_tail_x_position",
+            formula=r"x_{ht} = x_f + 0.75L_f",
+            values={
+                "x_fuselage": x_fuselage,
+                "L_fuselage": L_fuselage,
+            },
+            result=float(x_ht),
+            unit="m",
+            description="Продольное положение горизонтального оперения.",
+        )
 
         # === Vertical tail ===
         k_vertical_tail = self._get_number(values, "k_vertical_tail")
@@ -398,6 +547,59 @@ class GeometryBlock(BaseBlock):
         b0_vt = (2.0 * S_vt) / (l_vt * (1.0 + 1.0 / eta_vertical_tail))
         bk_vt = b0_vt / eta_vertical_tail
 
+        self._add_trace(
+            state,
+            value_name="vertical_tail_area",
+            formula=r"S_{vt} = k_{vt} \cdot S_{wing}",
+            values={
+                "k_vertical_tail": k_vertical_tail,
+                "S_wing": S_wing,
+            },
+            result=float(S_vt),
+            unit="m²",
+            description="Площадь вертикального оперения.",
+        )
+
+        self._add_trace(
+            state,
+            value_name="vertical_tail_span",
+            formula=r"l_{vt} = \sqrt{S_{vt} \cdot \lambda_{vt}}",
+            values={
+                "S_vt": S_vt,
+                "lambda_vertical_tail": lambda_vertical_tail,
+            },
+            result=float(l_vt),
+            unit="m",
+            description="Размах/высота вертикального оперения.",
+        )
+
+        self._add_trace(
+            state,
+            value_name="vertical_tail_root_chord",
+            formula=r"b_{0,vt} = \frac{2S_{vt}}{l_{vt}\left(1 + \frac{1}{\eta_{vt}}\right)}",
+            values={
+                "S_vt": S_vt,
+                "l_vt": l_vt,
+                "eta_vertical_tail": eta_vertical_tail,
+            },
+            result=float(b0_vt),
+            unit="m",
+            description="Корневая хорда вертикального оперения.",
+        )
+
+        self._add_trace(
+            state,
+            value_name="vertical_tail_tip_chord",
+            formula=r"b_{k,vt} = \frac{b_{0,vt}}{\eta_{vt}}",
+            values={
+                "b0_vt": b0_vt,
+                "eta_vertical_tail": eta_vertical_tail,
+            },
+            result=float(bk_vt),
+            unit="m",
+            description="Концевая хорда вертикального оперения.",
+        )
+
         sweep_vt_LE = self._calculate_le_sweep_angle(
             sweep_quarter_deg=sweep_vertical_tail_quarter,
             root_chord=b0_vt,
@@ -405,7 +607,39 @@ class GeometryBlock(BaseBlock):
             span=l_vt,
         )
 
+        self._add_trace(
+            state,
+            value_name="vertical_tail_le_sweep",
+            formula=(
+                r"\chi_{LE,vt} = \arctan\left("
+                r"\tan(\chi_{1/4,vt}) + \frac{b_{0,vt} - b_{k,vt}}{2l_{vt}}"
+                r"\right)"
+            ),
+            values={
+                "sweep_vertical_tail_quarter": sweep_vertical_tail_quarter,
+                "b0_vt": b0_vt,
+                "bk_vt": bk_vt,
+                "l_vt": l_vt,
+            },
+            result=float(sweep_vt_LE),
+            unit="deg",
+            description="Стреловидность вертикального оперения по передней кромке.",
+        )
+
         x_vt = x_fuselage + 0.75 * L_fuselage
+
+        self._add_trace(
+            state,
+            value_name="vertical_tail_x_position",
+            formula=r"x_{vt} = x_f + 0.75L_f",
+            values={
+                "x_fuselage": x_fuselage,
+                "L_fuselage": L_fuselage,
+            },
+            result=float(x_vt),
+            unit="m",
+            description="Продольное положение вертикального оперения.",
+        )
 
         return {
             "wing": {
@@ -459,6 +693,29 @@ class GeometryBlock(BaseBlock):
                 "Lambda": float(lambda_wing),
             },
         }
+
+
+    def _add_trace(
+        self,
+        state: CalculationState,
+        *,
+        value_name: str,
+        formula: str,
+        values: dict[str, Any],
+        result: Any,
+        unit: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        state.add_trace(
+            block_name=self.name,
+            value_name=value_name,
+            formula=formula,
+            values=values,
+            result=result,
+            unit=unit,
+            description=description,
+        )
+
 
     def _build_values(self, geometry_input: dict[str, Any]) -> dict[str, Any]:
         values = dict(self.default_values)
