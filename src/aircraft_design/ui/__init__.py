@@ -9,8 +9,15 @@ from aircraft_design.ui.adapter import (
     build_output_table_rows,
     collect_input_sections_from_field_views,
 )
-from aircraft_design.ui.main_window import MainWindow
-from aircraft_design.ui.run import run_gui_application
+
+try:
+    from aircraft_design.ui.main_window import MainWindow
+    from aircraft_design.ui.run import run_gui_application
+except ModuleNotFoundError as exc:  # pragma: no cover - depends on optional PySide6
+    if exc.name != "PySide6":
+        raise
+    MainWindow = None  # type: ignore[assignment]
+    run_gui_application = None  # type: ignore[assignment]
 
 __all__ = [
     "ChartSeriesView",

@@ -25,6 +25,7 @@ class InputFieldView:
     min_value: float | None = None
     max_value: float | None = None
     choices: list[Any] | None = None
+    choice_display_names: dict[Any, str] | None = None
     group: str | None = None
 
 
@@ -74,6 +75,65 @@ class ExistenceChartView:
     p0_by_v_s: float | None = None
 
 
+_UNIT_DISPLAY_NAMES = {
+    "kg": "кг",
+    "km": "км",
+    "m": "м",
+    "m/s": "м/с",
+    "m²": "м²",
+    "deg": "град",
+    "kg/m³": "кг/м³",
+    "N": "Н",
+    "N/m²": "Н/м²",
+    "Wh/kg": "Вт·ч/кг",
+    "kW/kg": "кВт/кг",
+    "kg/(hp*h)": "кг/(л.с.·ч)",
+    "hp": "л.с.",
+}
+
+_CHOICE_DISPLAY_NAMES = {
+    ("geometry", "wing_scheme", "low"): "Низкоплан",
+    ("geometry", "wing_scheme", "mid"): "Среднеплан",
+    ("geometry", "wing_scheme", "high"): "Высокоплан",
+    ("mass_estimation", "powerplant_type", "electric"): "Электрическая",
+    ("mass_estimation", "powerplant_type", "ice"): "ДВС",
+    ("mass_estimation", "engine_type", "piston"): "Поршневой",
+    ("mass_estimation", "engine_type", "turboprop"): "Турбовинтовой",
+    ("mass_estimation", "wing_position", "high"): "Высокоплан",
+    ("mass_estimation", "wing_position", "low"): "Низкоплан",
+    ("mass_estimation", "landing_gear_material", "medium_steel"): "Сталь средней удельной прочности",
+    ("mass_estimation", "landing_gear_material", "high_strength_metal"): "Металл высокой удельной прочности",
+    ("mass_estimation", "landing_gear_fairing", "none"): "Нет",
+    ("mass_estimation", "landing_gear_fairing", "wheel_fairings"): "На колёса",
+    ("mass_estimation", "landing_gear_fairing", "retractable"): "Шасси убирается",
+    ("mass_estimation", "landing_gear_type", "ski"): "Лыжное",
+    ("mass_estimation", "landing_gear_type", "wheeled"): "Колёсное",
+}
+
+
+def _display_unit(unit: str | None) -> str | None:
+    if unit is None:
+        return None
+    return _UNIT_DISPLAY_NAMES.get(unit, unit)
+
+
+def _choice_display_names(
+    section_name: str,
+    field_name: str,
+    choices: tuple[Any, ...] | None,
+) -> dict[Any, str] | None:
+    if not choices:
+        return None
+
+    labels: dict[Any, str] = {}
+    for choice in choices:
+        label = _CHOICE_DISPLAY_NAMES.get((section_name, field_name, choice))
+        if label is not None:
+            labels[choice] = label
+
+    return labels or None
+
+
 def build_input_table_sections(
     values: dict[str, dict[str, Any]] | None = None,
 ) -> list[InputSectionView]:
@@ -105,13 +165,18 @@ def build_input_table_sections(
                     display_name=parameter.display_name,
                     value_type=parameter.value_type,
                     description=parameter.description,
-                    unit=parameter.unit,
+                    unit=_display_unit(parameter.unit),
                     required=parameter.required,
                     default=parameter.default,
                     value=value,
                     min_value=parameter.min_value,
                     max_value=parameter.max_value,
                     choices=list(parameter.choices) if parameter.choices else None,
+                    choice_display_names=_choice_display_names(
+                        schema.section_name,
+                        parameter.name,
+                        parameter.choices,
+                    ),
                     group=parameter.group,
                 )
             )

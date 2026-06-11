@@ -164,7 +164,7 @@ class InputTableWidget(QWidget):
             combo = QComboBox(self._table)
 
             for choice in field.choices:
-                combo.addItem(str(choice), choice)
+                combo.addItem(self._choice_to_text(field, choice), choice)
 
             self._set_combo_value(combo, field.value)
             self._table.setCellWidget(row, 1, combo)
@@ -172,8 +172,8 @@ class InputTableWidget(QWidget):
 
         if field.value_type == "boolean":
             combo = QComboBox(self._table)
-            combo.addItem("False", False)
-            combo.addItem("True", True)
+            combo.addItem("Нет", False)
+            combo.addItem("Да", True)
             self._set_combo_value(combo, bool(field.value))
             self._table.setCellWidget(row, 1, combo)
             return
@@ -273,6 +273,13 @@ class InputTableWidget(QWidget):
             if combo.itemData(index) == value:
                 combo.setCurrentIndex(index)
                 return
+
+    @staticmethod
+    def _choice_to_text(field: InputFieldView, choice: Any) -> str:
+        if field.choice_display_names and choice in field.choice_display_names:
+            return field.choice_display_names[choice]
+
+        return str(choice)
 
     @staticmethod
     def _value_to_text(value: Any) -> str:
