@@ -144,9 +144,17 @@ def test_build_output_rows_and_chart_view_from_result() -> None:
     row_names = [row.name for row in rows]
 
     assert "p0_optimal" in row_names
+    assert "powerplant_type" in row_names
     assert "m_MTO" in row_names
     assert "S_W" in row_names
+    assert "structure_mass_ratio" in row_names
+    assert "relative_delta_wing_loading" in row_names
+    assert "service_load" in row_names
+    assert "battery_energy" in row_names
     assert "l_wing" in row_names
+
+    powerplant_row = next(row for row in rows if row.name == "powerplant_type")
+    assert powerplant_row.value == "ДВС"
 
     assert len(chart.series) > 0
     assert chart.optimal_point is not None
