@@ -66,7 +66,7 @@ class OutputTableWidget(QWidget):
             return "-"
 
         if isinstance(value, bool):
-            return str(value)
+            return "Да" if value else "Нет"
 
         if isinstance(value, int):
             return str(value)

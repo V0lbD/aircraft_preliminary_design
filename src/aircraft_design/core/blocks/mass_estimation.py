@@ -1,29 +1,26 @@
 from __future__ import annotations
 
 import logging
-import math
 from typing import Any
 
 from aircraft_design.core.blocks.base import BaseBlock
 from aircraft_design.core.errors import InputValidationError
-from aircraft_design.core.models import BlockInputSchema, CalculationState, ParameterSpec
-
 from aircraft_design.core.mass_components import (
-    ENGINE_ELECTRIC,
-    ENGINE_PISTON_AIR,
-    ENGINE_PISTON_LIQUID,
-    ENGINE_TURBOPROP,
+    ENGINE_CHOICES,
+    ENGINE_PISTON,
+    GEAR_FAIRING_CHOICES,
     GEAR_FAIRING_NONE,
-    GEAR_FAIRING_RETRACTABLE,
-    GEAR_FAIRING_WHEELS,
-    GEAR_MATERIAL_HIGH_STRENGTH,
+    GEAR_MATERIAL_CHOICES,
     GEAR_MATERIAL_MEDIUM_STEEL,
-    GEAR_NONE,
-    GEAR_SKI,
-    GEAR_WHEELED_BRAKED,
-    GEAR_WHEELED_UNBRAKED,
-    calculate_component_mass_iteration,
+    GEAR_TYPE_CHOICES,
+    GEAR_TYPE_WHEELED,
+    POWERPLANT_CHOICES,
+    POWERPLANT_ELECTRIC,
+    WING_POSITION_CHOICES,
+    WING_POSITION_HIGH,
+    calculate_mass_estimation,
 )
+from aircraft_design.core.models import BlockInputSchema, CalculationState, ParameterSpec
 
 logger = logging.getLogger(__name__)
 
@@ -31,18 +28,7 @@ STANDARD_GRAVITY = 9.80665
 
 
 class MassEstimationBlock(BaseBlock):
-    """
-    Mass estimation block.
-
-    Ported from old core/block_mass_estimation.py.
-
-    The block uses preliminary sizing outputs:
-    - p0_optimal
-    - P0_optimal
-
-    Formula cleanup and physics validation should be done later in
-    separate commits.
-    """
+    """Mass estimation block based on the new flowchart formulas."""
 
     name = "mass_estimation"
     required_input_sections = ("mass_estimation",)
@@ -51,679 +37,501 @@ class MassEstimationBlock(BaseBlock):
         section_name="mass_estimation",
         block_name="mass_estimation",
         display_name="Оценка масс",
-        description="Исходные параметры для оценки взлётной массы, топлива, тяги и площади крыла.",
+        description=(
+            "Исходные параметры для оценки взлётной массы по новой методике: "
+            "электрическая ветка по Духновскому / ДВС-ветка по Бреге, Чумаку "
+            "и Бадягину-Мухамедову."
+        ),
         parameters=(
+            ParameterSpec(
+                name="powerplant_type",
+                value_type="string",
+                display_name="Тип силовой установки",
+                description="Выбор основной ветки расчёта масс.",
+                required=True,
+                default=POWERPLANT_ELECTRIC,
+                choices=POWERPLANT_CHOICES,
+                group="general",
+            ),
             ParameterSpec(
                 name="payload_mass",
                 value_type="number",
-                display_name="Масса полезной нагрузки",
-                description="Расчётная масса полезной нагрузки.",
+                display_name="mцн",
+                description="Масса целевой / полезной нагрузки.",
                 unit="kg",
                 required=True,
+                default=1.0,
                 min_value=0,
-                group="mass",
+                group="general",
+            ),
+            ParameterSpec(
+                name="service_load_mass",
+                value_type="number",
+                display_name="mсл",
+                description="Масса служебной нагрузки. Используется в ДВС-ветке.",
+                unit="kg",
+                required=True,
+                default=0.0,
+                min_value=0,
+                group="general",
+            ),
+            ParameterSpec(
+                name="battery_equipment_mass",
+                value_type="number",
+                display_name="mакб.обор",
+                description="Масса АКБ оборудования. Используется в электрической ветке.",
+                unit="kg",
+                required=True,
+                default=0.0,
+                min_value=0,
+                group="electric",
+            ),
+            ParameterSpec(
+                name="control_equipment_mass",
+                value_type="number",
+                display_name="mоб.упр",
+                description="Масса оборудования управления. Используется в электрической ветке.",
+                unit="kg",
+                required=True,
+                default=0.0,
+                min_value=0,
+                group="electric",
             ),
             ParameterSpec(
                 name="design_range",
                 value_type="number",
-                display_name="Расчётная дальность",
+                display_name="L",
                 description="Расчётная дальность полёта.",
                 unit="km",
                 required=True,
+                default=10.0,
                 min_value=0,
                 group="mission",
             ),
             ParameterSpec(
-                name="fuel_reserve_factor",
+                name="cruise_speed",
                 value_type="number",
-                display_name="Коэффициент запаса топлива",
-                description="Множитель, учитывающий запас топлива.",
+                display_name="Vкр",
+                description="Крейсерская скорость.",
+                unit="m/s",
                 required=True,
-                min_value=1,
-                group="mission",
-            ),
-            ParameterSpec(
-                name="cruise_sfc",
-                value_type="number",
-                display_name="Удельный расход топлива в крейсере",
-                description="Удельный расход топлива на крейсерском режиме.",
-                unit="1/s",
-                required=True,
+                default=20.0,
                 min_value=0,
-                group="engine",
+                group="mission",
             ),
             ParameterSpec(
                 name="cruise_L_D_ratio",
                 value_type="number",
-                display_name="Аэродинамическое качество в крейсере",
-                description="Отношение подъёмной силы к сопротивлению на крейсерском режиме.",
+                display_name="K",
+                description="Аэродинамическое качество.",
                 required=True,
+                default=10.0,
                 min_value=0,
                 group="aerodynamics",
             ),
             ParameterSpec(
-                name="component_iteration_enabled",
+                name="is_maneuverable",
                 value_type="boolean",
-                display_name="Включить уточнение масс по компонентам",
-                description="Если включено, после базового расчёта запускается итерационный расчёт масс компонентов.",
-                required=False,
-                default=True,
-                group="component_iteration",
+                display_name="Маневренный самолёт",
+                description="Влияет на первое приближение массы конструкции / сумму по Чумаку.",
+                required=True,
+                default=False,
+                group="general",
             ),
             ParameterSpec(
-                name="component_tolerance",
+                name="is_under_2_5kg",
+                value_type="boolean",
+                display_name="m < 2.5 kg",
+                description="Выбор коэффициента массы электрической силовой установки.",
+                required=True,
+                default=False,
+                group="electric",
+            ),
+            ParameterSpec(
+                name="battery_specific_energy_wh_kg",
                 value_type="number",
-                display_name="Допуск сходимости по массе",
-                description="Относительная разница между итерациями, при которой расчёт считается сошедшимся.",
-                required=False,
+                display_name="q",
+                description="Удельная энергия АКБ.",
+                unit="Wh/kg",
+                required=True,
+                default=250.0,
+                min_value=0,
+                group="electric",
+            ),
+            ParameterSpec(
+                name="electric_powertrain_efficiency",
+                value_type="number",
+                display_name="ηсу",
+                description="КПД электрической силовой установки.",
+                required=True,
+                default=0.8,
+                min_value=0,
+                max_value=1,
+                group="electric",
+            ),
+            ParameterSpec(
+                name="cruise_altitude_m",
+                value_type="number",
+                display_name="H",
+                description="Высота набора / крейсерская высота для формулы АКБ.",
+                unit="m",
+                required=True,
+                default=0.0,
+                min_value=0,
+                group="electric",
+            ),
+            ParameterSpec(
+                name="power_loading_N0_kw_kg",
+                value_type="number",
+                display_name="N0",
+                description="Энерговооружённость для электрической силовой установки.",
+                unit="kW/kg",
+                required=True,
                 default=0.05,
                 min_value=0,
-                group="component_iteration",
+                group="electric",
             ),
             ParameterSpec(
-                name="component_max_iterations",
+                name="cruise_sfc_power",
+                value_type="number",
+                display_name="Ce",
+                description="Удельный расход топлива для формулы Бреге.",
+                unit="kg/(hp*h)",
+                required=True,
+                default=0.26,
+                min_value=0,
+                group="ice",
+            ),
+            ParameterSpec(
+                name="propeller_efficiency",
+                value_type="number",
+                display_name="ηв",
+                description="КПД винта для ДВС-ветки.",
+                required=True,
+                default=0.8,
+                min_value=0,
+                max_value=1,
+                group="ice",
+            ),
+            ParameterSpec(
+                name="engine_count",
                 value_type="integer",
-                display_name="Максимум итераций",
-                description="Максимальное число итераций уточнения массы.",
-                required=False,
-                default=30,
+                display_name="nдв",
+                description="Количество двигателей.",
+                required=True,
+                default=1,
                 min_value=1,
-                group="component_iteration",
+                group="ice",
             ),
             ParameterSpec(
                 name="engine_type",
                 value_type="string",
                 display_name="Тип двигателя",
-                description="Тип силовой установки для компонентного расчёта.",
-                required=False,
-                default=ENGINE_PISTON_AIR,
-                choices=(
-                    ENGINE_ELECTRIC,
-                    ENGINE_PISTON_AIR,
-                    ENGINE_PISTON_LIQUID,
-                    ENGINE_TURBOPROP,
-                ),
-                group="powerplant",
+                description="Тип ДВС для расчёта массы силовой установки.",
+                required=True,
+                default=ENGINE_PISTON,
+                choices=ENGINE_CHOICES,
+                group="ice",
             ),
             ParameterSpec(
-                name="propeller_efficiency",
+                name="takeoff_power_hp",
                 value_type="number",
-                display_name="КПД винта",
-                description="КПД винта для расчёта потребной мощности.",
-                required=False,
-                default=0.8,
-                min_value=0,
-                max_value=1,
-                group="powerplant",
-            ),
-            ParameterSpec(
-                name="wing_material_factor",
-                value_type="number",
-                display_name="Коэффициент материала крыла",
-                description="Коэффициент kм в формулах массы крыла.",
-                required=False,
+                display_name="Ne взл",
+                description="Взлётная мощность одного двигателя.",
+                unit="hp",
+                required=True,
                 default=1.0,
                 min_value=0,
-                group="wing_mass",
+                group="ice",
             ),
             ParameterSpec(
-                name="wing_relative_thickness",
+                name="wing_area_m2",
                 value_type="number",
-                display_name="Относительная толщина крыла",
-                description="Относительная толщина профиля крыла c̄.",
-                required=False,
-                default=0.12,
+                display_name="Sкр",
+                description="Площадь крыла для итерационного расчёта масс.",
+                unit="m²",
+                required=True,
+                default=0.5,
                 min_value=0,
-                group="wing_mass",
+                group="structure_wing",
+            ),
+            ParameterSpec(
+                name="horizontal_tail_area_m2",
+                value_type="number",
+                display_name="Sго",
+                description="Площадь горизонтального оперения.",
+                unit="m²",
+                required=True,
+                default=0.05,
+                min_value=0,
+                group="structure_tail",
+            ),
+            ParameterSpec(
+                name="vertical_tail_area_m2",
+                value_type="number",
+                display_name="Sво",
+                description="Площадь вертикального оперения.",
+                unit="m²",
+                required=True,
+                default=0.03,
+                min_value=0,
+                group="structure_tail",
+            ),
+            ParameterSpec(
+                name="wing_aspect_ratio",
+                value_type="number",
+                display_name="λ",
+                description="Удлинение крыла.",
+                required=True,
+                default=8.0,
+                min_value=0,
+                group="structure_wing",
             ),
             ParameterSpec(
                 name="wing_taper_ratio",
                 value_type="number",
-                display_name="Сужение крыла для массы",
-                description="Сужение крыла η, если оно не задано в блоке геометрии.",
-                required=False,
-                default=2.5,
+                display_name="η",
+                description="Сужение крыла.",
+                required=True,
+                default=2.0,
                 min_value=0,
-                group="wing_mass",
+                group="structure_wing",
             ),
             ParameterSpec(
-                name="fuselage_engine_mount_factor",
+                name="wing_relative_thickness",
                 value_type="number",
-                display_name="Коэффициент установки двигателя на фюзеляже",
-                description="Коэффициент kс.у для формулы массы фюзеляжа.",
-                required=False,
+                display_name="ε",
+                description="Относительная толщина крыла.",
+                required=True,
+                default=0.12,
+                min_value=0.02,
+                max_value=0.2,
+                group="structure_wing",
+            ),
+            ParameterSpec(
+                name="ultimate_load_factor",
+                value_type="number",
+                display_name="ny",
+                description="Расчётная перегрузка.",
+                required=True,
+                default=3.0,
+                min_value=0,
+                group="structure_wing",
+            ),
+            ParameterSpec(
+                name="f_factor",
+                value_type="number",
+                display_name="f",
+                description="Коэффициент f из формулы массы крыла.",
+                required=True,
+                default=2.0,
+                min_value=1.5,
+                max_value=3.0,
+                group="structure_wing",
+            ),
+            ParameterSpec(
+                name="wing_material_factor",
+                value_type="number",
+                display_name="km",
+                description="Коэффициент материала крыла.",
+                required=True,
                 default=1.0,
                 min_value=0,
-                group="fuselage_mass",
+                group="structure_wing",
             ),
             ParameterSpec(
-                name="landing_gear_type",
+                name="wing_position",
                 value_type="string",
-                display_name="Тип шасси",
-                description="Тип шасси для расчёта массы.",
-                required=False,
-                default=GEAR_WHEELED_BRAKED,
-                choices=(
-                    GEAR_NONE,
-                    GEAR_SKI,
-                    GEAR_WHEELED_BRAKED,
-                    GEAR_WHEELED_UNBRAKED,
-                ),
-                group="landing_gear",
+                display_name="Положение крыла",
+                description="Высокоплан или низкоплан.",
+                required=True,
+                default=WING_POSITION_HIGH,
+                choices=WING_POSITION_CHOICES,
+                group="structure_fuselage",
+            ),
+            ParameterSpec(
+                name="has_landing_gear",
+                value_type="boolean",
+                display_name="Есть ли шасси",
+                description="Если нет, относительная масса шасси равна нулю.",
+                required=True,
+                default=True,
+                group="structure_landing_gear",
             ),
             ParameterSpec(
                 name="landing_gear_material",
                 value_type="string",
                 display_name="Материал шасси",
-                description="Материал шасси, определяющий коэффициент kкон.",
-                required=False,
+                description="Материал шасси для коэффициента kкон.",
+                required=True,
                 default=GEAR_MATERIAL_MEDIUM_STEEL,
-                choices=(
-                    GEAR_MATERIAL_MEDIUM_STEEL,
-                    GEAR_MATERIAL_HIGH_STRENGTH,
-                ),
-                group="landing_gear",
+                choices=GEAR_MATERIAL_CHOICES,
+                group="structure_landing_gear",
             ),
             ParameterSpec(
                 name="landing_gear_fairing",
                 value_type="string",
                 display_name="Обтекатель шасси",
-                description="Наличие и тип обтекателя шасси.",
-                required=False,
+                description="Нет / на колёса / убираемое шасси.",
+                required=True,
                 default=GEAR_FAIRING_NONE,
-                choices=(
-                    GEAR_FAIRING_NONE,
-                    GEAR_FAIRING_WHEELS,
-                    GEAR_FAIRING_RETRACTABLE,
-                ),
-                group="landing_gear",
+                choices=GEAR_FAIRING_CHOICES,
+                group="structure_landing_gear",
+            ),
+            ParameterSpec(
+                name="landing_gear_type",
+                value_type="string",
+                display_name="Тип шасси",
+                description="Лыжное или колёсное.",
+                required=True,
+                default=GEAR_TYPE_WHEELED,
+                choices=GEAR_TYPE_CHOICES,
+                group="structure_landing_gear",
+            ),
+            ParameterSpec(
+                name="has_brakes",
+                value_type="boolean",
+                display_name="Есть ли тормоза",
+                description="Используется для колёсного шасси.",
+                required=True,
+                default=True,
+                group="structure_landing_gear",
             ),
             ParameterSpec(
                 name="landing_gear_strut_length_m",
                 value_type="number",
-                display_name="Длина главной опоры шасси",
-                description="hглш: длина главной опоры от ВПП до узла крепления. Если неизвестна, можно оставить 1 м.",
+                display_name="Hош",
+                description="Высота основной стойки шасси.",
                 unit="m",
-                required=False,
-                default=1.0,
+                required=True,
+                default=0.2,
                 min_value=0,
-                group="landing_gear",
+                group="structure_landing_gear",
             ),
             ParameterSpec(
-                name="battery_specific_energy_wh_kg",
+                name="wing_loading_tolerance",
                 value_type="number",
-                display_name="Удельная энергия АКБ",
-                description="Удельная энергия аккумулятора q.",
-                unit="Wh/kg",
-                required=False,
-                default=250.0,
+                display_name="Допуск изменения p0",
+                description="Критерий завершения итераций по изменению нагрузки на крыло.",
+                required=True,
+                default=0.10,
                 min_value=0,
-                group="battery",
+                group="iteration",
             ),
             ParameterSpec(
-                name="battery_efficiency",
-                value_type="number",
-                display_name="КПД электрической силовой установки",
-                description="КПД ηсу для расчёта относительной массы АКБ.",
-                required=False,
-                default=0.85,
-                min_value=0,
-                max_value=1,
-                group="battery",
-            ),
-            ParameterSpec(
-                name="cruise_altitude_m",
-                value_type="number",
-                display_name="Крейсерская высота",
-                description="Высота H для расчёта массы АКБ.",
-                unit="m",
-                required=False,
-                default=0.0,
-                min_value=0,
-                group="battery",
-            ),
-            ParameterSpec(
-                name="additional_mass_ratio",
-                value_type="number",
-                display_name="Дополнительная относительная масса",
-                description="Временная заглушка для прочих масс, пока их формулы не заданы.",
-                required=False,
-                default=0.0,
-                min_value=0,
-                group="other",
+                name="max_iterations",
+                value_type="integer",
+                display_name="Максимум итераций",
+                description="Защита от бесконечного цикла уточнения массы.",
+                required=True,
+                default=30,
+                min_value=1,
+                group="iteration",
             ),
         ),
     )
 
-    required_fields: tuple[str, ...] = (
-        "payload_mass",
-        "design_range",
-        "fuel_reserve_factor",
-        "cruise_sfc",
-        "cruise_L_D_ratio",
-    )
-
     def validate(self, state: CalculationState) -> None:
         super().validate(state)
-
         section = state.project_input.mass_estimation
-
-        missing_fields = [
-            field_name
-            for field_name in self.required_fields
-            if field_name not in section or section[field_name] is None
-        ]
-
-        if missing_fields:
+        if section["powerplant_type"] not in POWERPLANT_CHOICES:
             raise InputValidationError(
-                "Missing required mass_estimation fields: "
-                + ", ".join(missing_fields)
-            )
-
-        for field_name in self.required_fields:
-            value = self._get_number(section, field_name)
-            if value <= 0:
-                raise InputValidationError(
-                    f"mass_estimation.{field_name} must be positive. Got: {value}"
-                )
-
-        if "preliminary_sizing" not in state.data:
-            raise InputValidationError(
-                "Mass estimation requires preliminary_sizing block results."
-            )
-
-        preliminary_outputs = state.data["preliminary_sizing"]
-
-        for field_name in ("p0_optimal", "P0_optimal"):
-            if field_name not in preliminary_outputs:
-                raise InputValidationError(
-                    f"Missing preliminary_sizing output required for mass estimation: "
-                    f"{field_name}"
-                )
-
-            value = preliminary_outputs[field_name]
-            if not isinstance(value, int | float) or value <= 0:
-                raise InputValidationError(
-                    f"preliminary_sizing.{field_name} must be positive. Got: {value}"
-                )
-
-        preliminary_input = state.project_input.preliminary_sizing
-
-        if "V_cruise" not in preliminary_input:
-            raise InputValidationError(
-                "Mass estimation requires preliminary_sizing.V_cruise."
-            )
-
-        cruise_velocity = self._get_number(preliminary_input, "V_cruise")
-        if cruise_velocity <= 0:
-            raise InputValidationError(
-                f"preliminary_sizing.V_cruise must be positive. Got: {cruise_velocity}"
+                "mass_estimation.powerplant_type must be one of "
+                f"{POWERPLANT_CHOICES}. Got {section['powerplant_type']!r}."
             )
 
     def calculate(self, state: CalculationState) -> dict[str, Any]:
-        preliminary_outputs = state.data["preliminary_sizing"]
-        preliminary_input = state.project_input.preliminary_sizing
         section = state.project_input.mass_estimation
-
-        p0_optimal = float(preliminary_outputs["p0_optimal"])
-        P0_optimal = float(preliminary_outputs["P0_optimal"])
-
-        payload_mass = self._get_number(section, "payload_mass")
-        design_range_km = self._get_number(section, "design_range")
-        fuel_reserve_factor = self._get_number(section, "fuel_reserve_factor")
-        cruise_sfc = self._get_number(section, "cruise_sfc")
-        cruise_l_d_ratio = self._get_number(section, "cruise_L_D_ratio")
-        cruise_velocity = self._get_number(preliminary_input, "V_cruise")
-
-        logger.debug("p0_optimal: %s", p0_optimal)
-        logger.debug("P0_optimal: %s", P0_optimal)
-
-        # todo: надо ли такое разделение
-        # if P0_optimal > 0.4:
-        #     m_OE_ratio = 0.7
-        # else:
-
-        m_OE_ratio = 0.23 + 1.04 * P0_optimal
-
-        state.add_trace(
+        iteration_result = calculate_mass_estimation(
+            section,
+            trace=state.trace,
             block_name=self.name,
-            value_name="m_OE_ratio",
-            formula=r"\bar{m}_{OE} = 0.23 + 1.04 \cdot P_{0,opt}",
-            values={
-                "P0_optimal": P0_optimal,
-            },
-            result=float(m_OE_ratio),
-            description="Относительная масса пустого самолёта по базовой оценочной формуле.",
         )
+        breakdown = iteration_result.breakdown
+        final_m0 = iteration_result.final_m0
+        final_wing_area = iteration_result.final_wing_area
+        m_fuel = breakdown.fuel
+        m_operating_empty = breakdown.operating_empty_mass
+        m_oe_ratio = m_operating_empty / final_m0
+        m_f_ratio = m_fuel / final_m0
+        useful_load_ratio = (breakdown.payload + breakdown.service_load + m_fuel) / final_m0
 
-        mission_segments = {
-            "engine_start": 0.990,
-            "taxi": 0.995,
-            "takeoff": 0.995,
-            "climb": 0.980,
-            "descent": 0.990,
-            "landing": 0.992,
-        }
-
-        M_ff_non_cruise = 1.0
-        for mass_fraction in mission_segments.values():
-            M_ff_non_cruise *= mass_fraction
-
-        state.add_trace(
-            block_name=self.name,
-            value_name="M_ff_non_cruise",
-            formula=r"M_{ff,noncruise} = \prod_i M_{ff,i}",
-            values=mission_segments,
-            result=float(M_ff_non_cruise),
-            description="Произведение массовых долей для некрейсерских участков миссии.",
-        )
-
-        # todo: разобраться, надо ли домножать на 3.6
-        breguet_range_factor = (
-            cruise_l_d_ratio * cruise_velocity
-        ) / (cruise_sfc * STANDARD_GRAVITY)
-
-        state.add_trace(
-            block_name=self.name,
-            value_name="breguet_range_factor",
-            formula=r"B = \frac{K \cdot V_{cruise}}{c \cdot g}",
-            values={
-                "cruise_L_D_ratio": cruise_l_d_ratio,
-                "V_cruise": cruise_velocity,
-                "cruise_sfc": cruise_sfc,
-                "g": STANDARD_GRAVITY,
-            },
-            result=float(breguet_range_factor),
-            unit="m",
-            description="Фактор дальности в формуле Бреге.",
-        )
-
-        if breguet_range_factor <= 0:
-            raise InputValidationError(
-                "Breguet range factor must be positive. "
-                "Check cruise_L_D_ratio, V_cruise and cruise_sfc."
+        preliminary_outputs = state.data.get("preliminary_sizing", {})
+        p0_optimal = _optional_number(preliminary_outputs, "p0_optimal")
+        P0_optimal = _optional_number(preliminary_outputs, "P0_optimal")
+        if P0_optimal is not None and P0_optimal > 0:
+            t_to = final_m0 * STANDARD_GRAVITY * P0_optimal
+            state.add_trace(
+                block_name=self.name,
+                value_name="T_TO",
+                formula=r"T_{TO}=m_0gP_{0,opt}",
+                values={
+                    "m0": final_m0,
+                    "g": STANDARD_GRAVITY,
+                    "P0_optimal": P0_optimal,
+                },
+                result=float(t_to),
+                unit="N",
+                description="Взлётная тяга из блока предварительного расчёта.",
             )
-
-        design_range_m = design_range_km * 1000.0
-        M_ff_cruise = math.exp(-design_range_m / breguet_range_factor)
-        state.add_trace(
-            block_name=self.name,
-            value_name="M_ff_cruise",
-            formula=r"M_{ff,cruise} = \exp\left(-\frac{L}{B}\right)",
-            values={
-                "design_range_m": design_range_m,
-                "breguet_range_factor": breguet_range_factor,
-            },
-            result=float(M_ff_cruise),
-            description="Массовая доля для крейсерского участка по формуле Бреге.",
-        )
-
-        M_ff_total = M_ff_non_cruise * M_ff_cruise
-
-        state.add_trace(
-            block_name=self.name,
-            value_name="M_ff_total",
-            formula=r"M_{ff,total} = M_{ff,noncruise} \cdot M_{ff,cruise}",
-            values={
-                "M_ff_non_cruise": M_ff_non_cruise,
-                "M_ff_cruise": M_ff_cruise,
-            },
-            result=float(M_ff_total),
-            description="Полная массовая доля миссии.",
-        )
-
-        m_F_ratio = fuel_reserve_factor * (1.0 - M_ff_total)
-
-        state.add_trace(
-            block_name=self.name,
-            value_name="m_F_ratio",
-            formula=r"\bar{m}_F = k_{reserve} \cdot \left(1 - M_{ff,total}\right)",
-            values={
-                "fuel_reserve_factor": fuel_reserve_factor,
-                "M_ff_total": M_ff_total,
-            },
-            result=float(m_F_ratio),
-            description="Относительная масса топлива.",
-        )
-
-        # propeller_efficiency=float(state.project_input.mass_estimation.get("propeller_efficiency", 0.8))
-
-        # todo: потом убрать
-        # m_F_ratio = (math.exp(
-        #     ((design_range_km * STANDARD_GRAVITY * 0.26)
-        #     /
-        #     (735.5 * 3.6 * cruise_l_d_ratio * propeller_efficiency))
-        # ) - 1) / math.exp(
-        #     ((design_range_km * STANDARD_GRAVITY * 0.26)
-        #      /
-        #      (735.5 * 3.6 * cruise_l_d_ratio * propeller_efficiency))
-        # )
-
-        # m_F_ratio = 1 - math.exp(-((design_range_km * 0.26 * STANDARD_GRAVITY) / (cruise_l_d_ratio * propeller_efficiency)))
-
-        if m_F_ratio < 0:
-            raise InputValidationError(
-                "Calculated fuel mass ratio is negative. "
-                "Check design_range, cruise_sfc and cruise_L_D_ratio."
+        else:
+            t_to = 0.0
+            state.warnings.append(
+                "preliminary_sizing.P0_optimal is missing or non-positive; T_TO was set to 0."
             )
-
-        denominator = 1.0 - m_F_ratio - m_OE_ratio
-
-        state.add_trace(
-            block_name=self.name,
-            value_name="mass_balance_denominator",
-            formula=r"D = 1 - \bar{m}_F - \bar{m}_{OE}",
-            values={
-                "m_F_ratio": m_F_ratio,
-                "m_OE_ratio": m_OE_ratio,
-            },
-            result=float(denominator),
-            description="Знаменатель базового уравнения взлётной массы.",
-        )
-
-        if denominator <= 0:
-            raise InputValidationError(
-                "Cannot calculate maximum takeoff mass: "
-                f"1 - m_F_ratio - m_OE_ratio = {denominator:.6g}. "
-                "Check fuel fraction, empty mass fraction and preliminary sizing outputs."
-                f"m_F_ratio = {m_F_ratio}, m_OE_ratio = {m_OE_ratio}"
-            )
-
-        m_MTO = payload_mass / denominator
-
-        state.add_trace(
-            block_name=self.name,
-            value_name="m_MTO_base",
-            formula=r"m_{MTO} = \frac{m_{payload}}{1 - \bar{m}_F - \bar{m}_{OE}}",
-            values={
-                "payload_mass": payload_mass,
-                "m_F_ratio": m_F_ratio,
-                "m_OE_ratio": m_OE_ratio,
-                "denominator": denominator,
-            },
-            result=float(m_MTO),
-            unit="kg",
-            description="Базовая максимальная взлётная масса до компонентного уточнения.",
-        )
-
-        m_OE = m_MTO * m_OE_ratio
-        m_F = m_MTO * m_F_ratio
-        useful_load_ratio = (m_F + payload_mass) / m_MTO
-        T_TO = m_MTO * STANDARD_GRAVITY * P0_optimal
-        S_W = m_MTO / p0_optimal
-
-        state.add_trace(
-            block_name=self.name,
-            value_name="m_OE_base",
-            formula=r"m_{OE} = m_{MTO} \cdot \bar{m}_{OE}",
-            values={
-                "m_MTO": m_MTO,
-                "m_OE_ratio": m_OE_ratio,
-            },
-            result=float(m_OE),
-            unit="kg",
-            description="Базовая масса пустого самолёта.",
-        )
-
-        state.add_trace(
-            block_name=self.name,
-            value_name="m_F_base",
-            formula=r"m_F = m_{MTO} \cdot \bar{m}_F",
-            values={
-                "m_MTO": m_MTO,
-                "m_F_ratio": m_F_ratio,
-            },
-            result=float(m_F),
-            unit="kg",
-            description="Базовая масса топлива.",
-        )
-
-        state.add_trace(
-            block_name=self.name,
-            value_name="useful_load_ratio",
-            formula=r"\bar{m}_{useful} = \frac{m_F + m_{payload}}{m_{MTO}}",
-            values={
-                "m_F": m_F,
-                "payload_mass": payload_mass,
-                "m_MTO": m_MTO,
-            },
-            result=float(useful_load_ratio),
-            description="Относительная масса полезной нагрузки и топлива.",
-        )
-
-        state.add_trace(
-            block_name=self.name,
-            value_name="T_TO_base",
-            formula=r"T_{TO} = m_{MTO} \cdot g \cdot P_{0,opt}",
-            values={
-                "m_MTO": m_MTO,
-                "g": STANDARD_GRAVITY,
-                "P0_optimal": P0_optimal,
-            },
-            result=float(T_TO),
-            unit="N",
-            description="Базовая взлётная тяга.",
-        )
 
         state.add_trace(
             block_name=self.name,
             value_name="S_W",
-            formula=r"S_W = \frac{m_{MTO}}{p_{0,opt}}",
-            values={
-                "m_MTO": m_MTO,
-                "p0_optimal": p0_optimal,
-            },
-            result=float(S_W),
+            formula=r"S_W=S_{кр,final}",
+            values={"final_wing_area": final_wing_area},
+            result=float(final_wing_area),
             unit="m²",
-            description="Площадь крыла по взлётной массе и нагрузке на крыло.",
+            description="Площадь крыла, сохранённая в старом выходном поле для блока геометрии.",
         )
 
-        component_iteration = calculate_component_mass_iteration(
-            initial_m0=m_MTO,
-            payload_mass=payload_mass,
-            fuel_mass_ratio=m_F_ratio,
-            p0_optimal=p0_optimal,
-            S_W=S_W,
-            preliminary_input=preliminary_input,
-            mass_input=section,
-            geometry_input=state.project_input.geometry,
-            trace=state.trace,
-            block_name=self.name,
-        )
-
-        if component_iteration.enabled:
-            state.add_trace(
-                block_name=self.name,
-                value_name="component_mass_iteration",
-                formula=(
-                    r"m_{0,new} = m_{payload} + m_F + m_{wing} + m_{fuselage} + "
-                    r"m_{tail} + m_{powerplant} + m_{gear} + m_{battery} + "
-                    r"m_{equipment} + m_{additional}"
-                ),
-                values={
-                    "initial_m0": component_iteration.initial_m0,
-                    "tolerance": component_iteration.tolerance,
-                    "max_iterations": component_iteration.max_iterations,
-                    "iterations": component_iteration.iterations,
-                    "converged": component_iteration.converged,
-                    "relative_delta": component_iteration.relative_delta,
-                },
-                result={
-                    "final_m0": component_iteration.final_m0,
-                    "component_masses": (
-                        component_iteration.component_masses.to_dict()
-                        if component_iteration.component_masses is not None
-                        else {}
-                    ),
-                },
-                unit="kg",
-                description="Iterative component mass refinement.",
+        if not iteration_result.converged:
+            state.warnings.append(
+                "Mass iteration did not converge after "
+                f"{iteration_result.max_iterations} iterations. "
+                "The last calculated mass was returned."
             )
 
-            if not component_iteration.converged:
-                warning = (
-                    "Component mass iteration did not converge after "
-                    f"{component_iteration.max_iterations} iterations. "
-                    f"Last relative delta: {component_iteration.relative_delta:.5f}"
-                )
-                state.warnings.append(warning)
-                logger.warning(warning)
-
-            if component_iteration.converged and component_iteration.component_masses is not None:
-                m_MTO = component_iteration.final_m0
-                m_F = m_MTO * m_F_ratio
-                m_OE = component_iteration.component_masses.operating_empty_mass
-                useful_load_ratio = (m_F + payload_mass) / m_MTO
-                T_TO = m_MTO * STANDARD_GRAVITY * P0_optimal
-                S_W = m_MTO / p0_optimal
-            else:
-                warning = (
-                    "Component mass iteration did not converge. "
-                    "Base mass estimation values were kept."
-                )
-                state.warnings.append(warning)
-                logger.warning(warning)
-
         return {
-            "m_MTO": float(m_MTO),
-            "m_OE": float(m_OE),
-            "m_F": float(m_F),
-            "T_TO": float(T_TO),
-            "S_W": float(S_W),
-            "m_OE_ratio": float(m_OE_ratio),
-            "m_F_ratio": float(m_F_ratio),
+            "m_MTO": float(final_m0),
+            "m_OE": float(m_operating_empty),
+            "m_F": float(m_fuel),
+            "T_TO": float(t_to),
+            "S_W": float(final_wing_area),
+            "m_OE_ratio": float(m_oe_ratio),
+            "m_F_ratio": float(m_f_ratio),
             "useful_load_ratio": float(useful_load_ratio),
-            "mission": {
-                "mass_fractions": mission_segments,
-                "M_ff_non_cruise": float(M_ff_non_cruise),
-                "M_ff_cruise": float(M_ff_cruise),
-                "M_ff_total": float(M_ff_total),
-                "breguet_range_factor": float(breguet_range_factor),
-            },
-            "component_mass_iteration": component_iteration.to_dict(),
-            "component_masses": (
-                component_iteration.component_masses.to_dict()
-                if component_iteration.component_masses is not None
-                else {}
+            "powerplant_type": iteration_result.powerplant_type,
+            "converged": iteration_result.converged,
+            "iterations": iteration_result.iterations,
+            "wing_loading_relative_delta": float(
+                iteration_result.relative_delta_wing_loading
             ),
+            "structure_mass_ratio": float(iteration_result.structure_ratios.total),
+            "component_masses": breakdown.to_dict(),
+            "component_mass_iteration": iteration_result.to_dict(),
+            "mass_ratios": {
+                **iteration_result.final_ratios,
+                "operating_empty_mass_ratio": float(m_oe_ratio),
+                "fuel_mass_ratio": float(m_f_ratio),
+            },
             "inputs_from_preliminary_sizing": {
-                "p0_optimal": float(p0_optimal),
-                "P0_optimal": float(P0_optimal),
+                "p0_optimal": p0_optimal,
+                "P0_optimal": P0_optimal,
             },
         }
 
-    @staticmethod
-    def _get_number(section: dict[str, Any], field_name: str) -> float:
-        value = section[field_name]
 
-        if isinstance(value, bool):
-            raise InputValidationError(
-                f"{field_name} must be a number, not bool."
-            )
-
-        try:
-            return float(value)
-        except (TypeError, ValueError) as exc:
-            raise InputValidationError(
-                f"{field_name} must be a number. Got: {value!r}"
-            ) from exc
+def _optional_number(section: dict[str, Any], field_name: str) -> float | None:
+    value = section.get(field_name)
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None

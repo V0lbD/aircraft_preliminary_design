@@ -1,49 +1,136 @@
 from __future__ import annotations
 
-from aircraft_design.core.mass_components import calculate_component_mass_iteration
+import pytest
+
+from aircraft_design.core.mass_components import (
+    GEAR_FAIRING_NONE,
+    GEAR_MATERIAL_MEDIUM_STEEL,
+    GEAR_TYPE_WHEELED,
+    POWERPLANT_ELECTRIC,
+    POWERPLANT_ICE,
+    calculate_battery_mass_ratio,
+    calculate_breguet_fuel_mass_ratio,
+    calculate_landing_gear_mass_ratio,
+    calculate_mass_estimation,
+)
 
 
-def test_component_mass_iteration_runs() -> None:
-    result = calculate_component_mass_iteration(
-        initial_m0=2500.0,
-        payload_mass=300.0,
-        fuel_mass_ratio=0.15,
-        p0_optimal=2500.0,
-        S_W=10,
-        preliminary_input={
-            "Lambda": 9.2,
-            "n_max": 3.2,
-            "V_cruise": 70.0,
-            "pho_V_cruise": 1.0,
-            "C_x0": 0.028,
-            "e": 0.82,
-        },
-        mass_input={
-            "component_iteration_enabled": True,
-            "component_tolerance": 0.05,
-            "component_max_iterations": 30,
-            "engine_type": "ПД воздушного охлаждения",
-            "propeller_efficiency": 0.8,
-            "landing_gear_type": "колёсное с тормозами",
-            "landing_gear_material": "сталь средней удельной прочности",
-            "landing_gear_fairing": "нет",
-            "landing_gear_strut_length_m": 1.0,
-        },
-        geometry_input={
-            "eta_wing": 2.5,
-            "k_horizontal_tail": 0.25,
-            "k_vertical_tail": 0.15,
-        },
+def make_common_mass_input() -> dict:
+    return {
+        "payload_mass": 520.0,
+        "service_load_mass": 1500.0,
+        "battery_equipment_mass": 0.0,
+        "control_equipment_mass": 0.0,
+        "design_range": 400.0,
+        "cruise_speed": 48.0,
+        "cruise_L_D_ratio": 12.0,
+        "is_maneuverable": False,
+        "is_under_2_5kg": False,
+        "battery_specific_energy_wh_kg": 250.0,
+        "electric_powertrain_efficiency": 0.8,
+        "cruise_altitude_m": 0.0,
+        "power_loading_N0_kw_kg": 0.05,
+        "cruise_sfc_power": 0.26,
+        "propeller_efficiency": 0.8,
+        "engine_count": 2,
+        "engine_type": "piston",
+        "takeoff_power_hp": 300.0,
+        "wing_area_m2": 25.0,
+        "horizontal_tail_area_m2": 6.25,
+        "vertical_tail_area_m2": 3.75,
+        "wing_aspect_ratio": 12.19,
+        "wing_taper_ratio": 1.5,
+        "wing_relative_thickness": 0.12,
+        "ultimate_load_factor": 2.5,
+        "f_factor": 2.0,
+        "wing_material_factor": 0.8,
+        "wing_position": "high",
+        "has_landing_gear": True,
+        "landing_gear_material": "medium_steel",
+        "landing_gear_fairing": "none",
+        "landing_gear_type": "wheeled",
+        "has_brakes": True,
+        "landing_gear_strut_length_m": 0.6,
+        "wing_loading_tolerance": 0.1,
+        "max_iterations": 30,
+    }
+
+
+def test_ice_mass_estimation_runs() -> None:
+    mass_input = make_common_mass_input()
+    mass_input["powerplant_type"] = POWERPLANT_ICE
+
+    result = calculate_mass_estimation(mass_input)
+
+    assert result.powerplant_type == POWERPLANT_ICE
+    assert result.iterations > 0
+    assert result.final_m0 > 0
+    assert result.structure_ratios.total > 0
+    assert result.breakdown.fuel > 0
+    assert result.breakdown.powerplant > 0
+
+
+def test_electric_mass_estimation_runs() -> None:
+    mass_input = make_common_mass_input()
+    mass_input.update(
+        {
+            "powerplant_type": POWERPLANT_ELECTRIC,
+            "payload_mass": 5.0,
+            "service_load_mass": 0.0,
+            "battery_equipment_mass": 0.5,
+            "control_equipment_mass": 0.2,
+            "design_range": 5.0,
+            "cruise_speed": 20.0,
+            "wing_area_m2": 0.8,
+            "horizontal_tail_area_m2": 0.2,
+            "vertical_tail_area_m2": 0.12,
+            "wing_aspect_ratio": 8.0,
+            "ultimate_load_factor": 3.0,
+            "wing_material_factor": 0.5,
+            "power_loading_N0_kw_kg": 0.08,
+        }
     )
 
-    assert result.enabled is True
-    assert result.iterations > 0
-    assert result.component_masses is not None
+    result = calculate_mass_estimation(mass_input)
+
+    assert result.powerplant_type == POWERPLANT_ELECTRIC
     assert result.final_m0 > 0
+    assert result.breakdown.battery_energy > 0
+    assert result.breakdown.fuel == 0
 
-    component_masses = result.component_masses.to_dict()
 
-    assert component_masses["wing"] > 0
-    assert component_masses["fuselage"] > 0
-    assert component_masses["tail"] > 0
-    assert component_masses["landing_gear"] > 0
+def test_breguet_fuel_mass_ratio_matches_formula() -> None:
+    ratio = calculate_breguet_fuel_mass_ratio(
+        design_range_km=400.0,
+        cruise_sfc_power=0.26,
+        cruise_l_d_ratio=12.0,
+        propeller_efficiency=0.8,
+    )
+
+    assert ratio == pytest.approx(0.0393291, rel=1e-3)
+
+
+def test_battery_mass_ratio_positive() -> None:
+    ratio = calculate_battery_mass_ratio(
+        design_range_km=5.0,
+        cruise_l_d_ratio=10.0,
+        cruise_altitude_m=100.0,
+        cruise_speed_m_s=20.0,
+        battery_specific_energy_wh_kg=250.0,
+        electric_powertrain_efficiency=0.8,
+    )
+
+    assert ratio > 0
+
+
+def test_landing_gear_mass_ratio_for_wheeled_braked_gear() -> None:
+    ratio = calculate_landing_gear_mass_ratio(
+        has_landing_gear=True,
+        landing_gear_material=GEAR_MATERIAL_MEDIUM_STEEL,
+        landing_gear_fairing=GEAR_FAIRING_NONE,
+        landing_gear_type=GEAR_TYPE_WHEELED,
+        has_brakes=True,
+        landing_gear_strut_length_m=0.6,
+    )
+
+    assert ratio == pytest.approx(0.0419)
