@@ -185,7 +185,7 @@ cython_debug/
 .vscode/
 
 # Runtime output
-outputs/*
+# outputs/*
 !outputs/.gitkeep
 
 # Logs
