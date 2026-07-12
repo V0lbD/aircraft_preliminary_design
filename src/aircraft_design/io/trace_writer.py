@@ -102,7 +102,7 @@ def format_trace_markdown(result: ProjectResult) -> str:
 
 
 def trace_record_to_dict(record: CalculationTraceRecord) -> dict[str, Any]:
-    return asdict(record)
+    return record.model_dump()
 
 
 def _group_records_by_block(

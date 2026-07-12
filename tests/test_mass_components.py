@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from aircraft_design.core.mass_components import (
+from aircraft_design.core.blocks.mass_estimation.components import (
     GEAR_FAIRING_NONE,
     GEAR_MATERIAL_MEDIUM_STEEL,
     GEAR_TYPE_WHEELED,

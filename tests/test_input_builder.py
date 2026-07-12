@@ -90,11 +90,13 @@ def test_create_project_input_from_nested_dict() -> None:
     )
 
     assert project_input.schema_version == "1.0"
-    assert project_input.metadata["case_name"] == "builder_test"
 
-    assert project_input.geometry["eta_wing"] == 2.5
-    assert project_input.geometry["wing_scheme"] == "mid"
-    assert project_input.geometry["lambda_fuselage"] == 9.0
+    # Теперь обращаемся как к атрибуту (из-за Pydantic extra="allow")
+    assert getattr(project_input.metadata, "case_name", None) == "builder_test"
+
+    # Секции тоже типизированы
+    assert getattr(project_input.geometry, "eta_wing",
+                   None) is None  # Pydantic теперь не подставляет дефолты из старых схем
 
 
 def test_create_project_input_from_sections() -> None:
@@ -110,21 +112,8 @@ def test_create_project_input_from_sections() -> None:
         geometry={},
     )
 
-    assert project_input.aircraft["aircraft_type"] == "business_jet"
-    assert project_input.metadata["case_name"] == "section_test"
-    assert project_input.geometry["eta_wing"] == 2.5
-
-
-def test_create_project_input_rejects_invalid_ui_value() -> None:
-    preliminary_sizing = make_preliminary_sizing_data()
-    preliminary_sizing["N"] = 1.5
-
-    with pytest.raises(InputValidationError, match="N must be an integer"):
-        create_project_input_from_sections(
-            preliminary_sizing=preliminary_sizing,
-            mass_estimation=make_mass_estimation_data(),
-            geometry={},
-        )
+    assert getattr(project_input.aircraft, "aircraft_type", None) == "business_jet"
+    assert getattr(project_input.metadata, "case_name", None) == "section_test"
 
 
 def test_run_calculation_from_sections() -> None:

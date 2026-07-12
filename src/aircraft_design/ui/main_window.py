@@ -21,14 +21,13 @@ from PySide6.QtWidgets import (
 from aircraft_design.app import run_calculation_from_sections
 from aircraft_design.input_builder import (
     create_project_input_from_sections,
-    project_input_to_dict,
 )
 from aircraft_design.core.errors import AircraftDesignError
 from aircraft_design.core.models import ProjectInput, ProjectResult
 from aircraft_design.io import (
     load_project_input,
-    write_json_data,
-    write_json_result,
+    write_project_input,
+    write_project_result,
     write_txt_result,
 )
 from aircraft_design.ui.adapter import (
@@ -171,9 +170,8 @@ class MainWindow(QMainWindow):
 
         try:
             project_input = self._build_current_project_input()
-            data = project_input_to_dict(project_input)
 
-            write_json_data(data, Path(file_path))
+            write_project_input(project_input, Path(file_path))
 
             self._metadata["saved_input_file"] = str(file_path)
             self._set_status(f"Входной JSON сохранён: {file_path}")
@@ -303,7 +301,7 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            write_json_result(self._last_result, Path(file_path))
+            write_project_result(self._last_result, Path(file_path))
             self._set_status(f"JSON сохранён: {file_path}")
 
         except Exception as exc:

@@ -118,34 +118,75 @@ def _format_mass_estimation(result: ProjectResult) -> list[str]:
         lines.append("")
         return lines
 
+    # Основные данные
     lines.extend(
         [
+            f"Тип силовой установки: {_fmt(outputs.get('powerplant_type'))}",
             f"Максимальная взлётная масса m_MTO: {_fmt(outputs.get('m_MTO'), 'кг')}",
             f"Масса пустого самолёта m_OE: {_fmt(outputs.get('m_OE'), 'кг')}",
             f"Масса топлива m_F: {_fmt(outputs.get('m_F'), 'кг')}",
-            f"Максимальная посадочная масса m_ML: {_fmt(outputs.get('m_ML'), 'кг')}",
             f"Взлётная тяга T_TO: {_fmt(outputs.get('T_TO'), 'Н')}",
             f"Площадь крыла S_W: {_fmt(outputs.get('S_W'), 'м²')}",
             "",
-            "Относительные массы:",
-            f"  m_OE / m_MTO: {_fmt(outputs.get('m_OE_ratio'))}",
-            f"  m_F / m_MTO: {_fmt(outputs.get('m_F_ratio'))}",
-            f"  m_ML / m_MTO: {_fmt(outputs.get('m_ML_ratio'))}",
-            f"  Полезная нагрузка + топливо: {_fmt(outputs.get('useful_load_ratio'))}",
         ]
     )
 
-    mission = _as_dict(outputs.get("mission"))
+    # Информация об итерациях сходимости
+    lines.extend(
+        [
+            "Итерационный расчёт масс:",
+            f"  Итерация сошлась: {_fmt(outputs.get('converged'))}",
+            f"  Количество затраченных итераций: {_fmt(outputs.get('iterations'))}",
+            f"  Отн. невязка нагрузки на крыло: {_fmt(outputs.get('wing_loading_relative_delta'))}",
+            "",
+        ]
+    )
 
-    if mission:
+    # Относительные массы (доли)
+    mass_ratios = _as_dict(outputs.get("mass_ratios"))
+    if mass_ratios or "m_OE_ratio" in outputs:
+        lines.append("Относительные массы (доли от m_MTO):")
+        lines.append(f"  Пустой самолёт (m_OE_ratio): {_fmt(outputs.get('m_OE_ratio'))}")
+        lines.append(f"  Топливо (m_F_ratio): {_fmt(outputs.get('m_F_ratio'))}")
+
+        if mass_ratios.get("battery_mass_ratio"):
+            lines.append(f"  АКБ на полёт: {_fmt(mass_ratios.get('battery_mass_ratio'))}")
+
+        lines.append(f"  Полезная/служебная нагрузка: {_fmt(outputs.get('useful_load_ratio'))}")
+        lines.append(f"  Конструкция суммарно: {_fmt(outputs.get('structure_mass_ratio'))}")
+
+        if mass_ratios.get("powerplant_mass_ratio"):
+            lines.append(f"  Силовая установка: {_fmt(mass_ratios.get('powerplant_mass_ratio'))}")
+        if mass_ratios.get("special_equipment_mass_ratio"):
+            lines.append(f"  Оборудование СН: {_fmt(mass_ratios.get('special_equipment_mass_ratio'))}")
+        lines.append("")
+
+    # Абсолютные массы компонентов
+    component_masses = _as_dict(outputs.get("component_masses"))
+    if component_masses:
         lines.extend(
             [
-                "",
-                "Миссионные коэффициенты:",
-                f"  Небоевые/некрейсерские участки: {_fmt(mission.get('M_ff_non_cruise'))}",
-                f"  Крейсерский участок: {_fmt(mission.get('M_ff_cruise'))}",
-                f"  Общий коэффициент M_ff: {_fmt(mission.get('M_ff_total'))}",
-                f"  Фактор дальности Бреге: {_fmt(mission.get('breguet_range_factor'), 'м')}",
+                "Массы компонентов:",
+                f"  Целевая нагрузка: {_fmt(component_masses.get('payload'), 'кг')}",
+                f"  Служебная нагрузка: {_fmt(component_masses.get('service_load'), 'кг')}",
+                f"  Топливо: {_fmt(component_masses.get('fuel'), 'кг')}",
+            ]
+        )
+        if component_masses.get('battery_energy'):
+            lines.append(f"  АКБ на полёт: {_fmt(component_masses.get('battery_energy'), 'кг')}")
+        if component_masses.get('battery_equipment'):
+            lines.append(f"  АКБ бортового оборудования: {_fmt(component_masses.get('battery_equipment'), 'кг')}")
+        if component_masses.get('control_equipment'):
+            lines.append(f"  Оборудование управления: {_fmt(component_masses.get('control_equipment'), 'кг')}")
+
+        lines.extend(
+            [
+                f"  Крыло: {_fmt(component_masses.get('wing'), 'кг')}",
+                f"  Фюзеляж: {_fmt(component_masses.get('fuselage'), 'кг')}",
+                f"  Оперение: {_fmt(component_masses.get('tail'), 'кг')}",
+                f"  Шасси: {_fmt(component_masses.get('landing_gear'), 'кг')}",
+                f"  Силовая установка: {_fmt(component_masses.get('powerplant'), 'кг')}",
+                f"  Оборудование СН: {_fmt(component_masses.get('special_equipment'), 'кг')}",
             ]
         )
 
@@ -306,7 +347,7 @@ def _fmt(value: Any, unit: str = "", *, precision: int = 4) -> str:
         text = "-"
 
     elif isinstance(value, bool):
-        text = str(value)
+        text = "Да" if value else "Нет"
 
     elif isinstance(value, int):
         text = str(value)

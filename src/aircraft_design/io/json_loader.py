@@ -1,27 +1,21 @@
-from __future__ import annotations
-
-import json
 from pathlib import Path
+from aircraft_design.core.models.project import ProjectInput
+from aircraft_design.core.errors import InputValidationError
+from pydantic import ValidationError
 
-from aircraft_design.core.errors import FileFormatError
-from aircraft_design.core.models import ProjectInput
-from aircraft_design.input_builder import create_project_input
-
-
-def load_project_input(path: str | Path) -> ProjectInput:
-    input_path = Path(path)
-
-    if not input_path.exists():
-        raise FileFormatError(f"Input file does not exist: {input_path}")
-
-    if input_path.suffix.lower() != ".json":
-        raise FileFormatError(f"Input file must have .json extension: {input_path}")
+def load_project_input(file_path: str | Path) -> ProjectInput:
+    """
+    Загружает входные данные проекта из JSON файла.
+    """
+    path = Path(file_path)
+    if not path.is_file():
+        raise InputValidationError(f"Файл не найден: {path}")
 
     try:
-        with input_path.open("r", encoding="utf-8") as file:
-            raw_data = json.load(file)
-
-    except json.JSONDecodeError as exc:
-        raise FileFormatError(f"Invalid JSON file '{input_path}': {exc}") from exc
-
-    return create_project_input(raw_data)
+        json_content = path.read_text(encoding="utf-8")
+        # Pydantic сам распарсит строку и проверит все типы
+        return ProjectInput.model_validate_json(json_content)
+    except ValidationError as e:
+        raise InputValidationError(f"Ошибка валидации структуры файла {path.name}:\n{e}")
+    except Exception as e:
+        raise InputValidationError(f"Ошибка при чтении файла {path.name}: {e}")
