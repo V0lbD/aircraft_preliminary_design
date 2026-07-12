@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from aircraft_design.core.blocks.base import BaseBlock
 from aircraft_design.core.errors import InputValidationError
-from aircraft_design.core.mass_components import (
+from aircraft_design.core.blocks.mass_estimation.components import (
     ENGINE_CHOICES,
     ENGINE_PISTON,
     GEAR_FAIRING_CHOICES,
@@ -18,6 +18,7 @@ from aircraft_design.core.mass_components import (
     POWERPLANT_ELECTRIC,
     WING_POSITION_CHOICES,
     WING_POSITION_HIGH,
+    MassEstimationInput,
     calculate_mass_estimation,
 )
 from aircraft_design.core.models import BlockInputSchema, CalculationState, ParameterSpec
@@ -28,7 +29,7 @@ STANDARD_GRAVITY = 9.80665
 
 
 class MassEstimationBlock(BaseBlock):
-    """Mass estimation block based on the new flowchart formulas."""
+    """Блок оценки масс на основе новых итерационных алгоритмов."""
 
     name = "mass_estimation"
     required_input_sections = ("mass_estimation",)
@@ -433,20 +434,37 @@ class MassEstimationBlock(BaseBlock):
 
     def validate(self, state: CalculationState) -> None:
         super().validate(state)
-        section = state.project_input.mass_estimation
-        if section["powerplant_type"] not in POWERPLANT_CHOICES:
-            raise InputValidationError(
-                "mass_estimation.powerplant_type must be one of "
-                f"{POWERPLANT_CHOICES}. Got {section['powerplant_type']!r}."
-            )
+
+        # Получаем секцию из состояния
+        section_data = state.project_input.mass_estimation
+
+        # Если секция пришла как словарь или другая модель, конвертируем
+        if isinstance(section_data, dict):
+            raw_data = section_data
+        else:
+            raw_data = section_data.model_dump()
+
+        try:
+            # Валидируем данные нашей строгой моделью
+            MassEstimationInput.model_validate(raw_data)
+        except Exception as e:
+            raise InputValidationError(f"Ошибка валидации данных блока mass_estimation: {e}")
 
     def calculate(self, state: CalculationState) -> dict[str, Any]:
-        section = state.project_input.mass_estimation
+        # Получаем данные секции
+        section_data = state.project_input.mass_estimation
+        if isinstance(section_data, dict):
+            raw_data = section_data
+        else:
+            raw_data = section_data.model_dump()
+
+        # Запускаем расчет (теперь функция calculate_mass_estimation сама внутри преобразует raw_data в MassEstimationInput)
         iteration_result = calculate_mass_estimation(
-            section,
+            raw_data,
             trace=state.trace,
             block_name=self.name,
         )
+
         breakdown = iteration_result.breakdown
         final_m0 = iteration_result.final_m0
         final_wing_area = iteration_result.final_wing_area
@@ -456,9 +474,11 @@ class MassEstimationBlock(BaseBlock):
         m_f_ratio = m_fuel / final_m0
         useful_load_ratio = (breakdown.payload + breakdown.service_load + m_fuel) / final_m0
 
+        # Взаимодействие с другими блоками (preliminary_sizing)
         preliminary_outputs = state.data.get("preliminary_sizing", {})
         p0_optimal = _optional_number(preliminary_outputs, "p0_optimal")
         P0_optimal = _optional_number(preliminary_outputs, "P0_optimal")
+
         if P0_optimal is not None and P0_optimal > 0:
             t_to = final_m0 * STANDARD_GRAVITY * P0_optimal
             state.add_trace(
@@ -477,7 +497,7 @@ class MassEstimationBlock(BaseBlock):
         else:
             t_to = 0.0
             state.warnings.append(
-                "preliminary_sizing.P0_optimal is missing or non-positive; T_TO was set to 0."
+                "preliminary_sizing.P0_optimal отсутствует или неположительное; T_TO установлено в 0."
             )
 
         state.add_trace(
@@ -492,9 +512,8 @@ class MassEstimationBlock(BaseBlock):
 
         if not iteration_result.converged:
             state.warnings.append(
-                "Mass iteration did not converge after "
-                f"{iteration_result.max_iterations} iterations. "
-                "The last calculated mass was returned."
+                f"Итерация масс не сошлась за {iteration_result.max_iterations} итераций. "
+                "Возвращена последняя рассчитанная масса."
             )
 
         return {
@@ -527,8 +546,13 @@ class MassEstimationBlock(BaseBlock):
         }
 
 
-def _optional_number(section: dict[str, Any], field_name: str) -> float | None:
-    value = section.get(field_name)
+def _optional_number(section: Any, field_name: str) -> Optional[float]:
+    # Безопасное извлечение числа, даже если section это BaseModel или dict
+    if isinstance(section, dict):
+        value = section.get(field_name)
+    else:
+        value = getattr(section, field_name, None)
+
     if value is None or isinstance(value, bool):
         return None
     try:

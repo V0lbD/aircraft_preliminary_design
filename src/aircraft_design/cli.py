@@ -1,22 +1,18 @@
-from __future__ import annotations
-
 import argparse
 import logging
+import json
 from pathlib import Path
 
 from aircraft_design.core.errors import AircraftDesignError
 from aircraft_design.io import (
     load_project_input,
-    write_json_data,
-    write_json_result,
+    write_project_result,
     write_trace_json,
     write_trace_markdown,
     write_txt_result,
 )
 from aircraft_design.logging_config import configure_logging
-
 from aircraft_design.app import run_calculation
-
 from aircraft_design.core.models import create_input_template, input_schemas_to_dict
 from aircraft_design.core.pipeline import get_default_input_schemas
 
@@ -173,7 +169,7 @@ def run_batch_mode(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
     logger.info("Writing %s result file: %s", output_format, output_path)
 
     if output_format == "json":
-        write_json_result(result, output_path)
+        write_project_result(result, output_path)
     else:
         write_txt_result(result, output_path)
 
@@ -206,25 +202,24 @@ def resolve_output_format(
 
 def run_schema_mode(args: argparse.Namespace) -> int:
     output_path = Path(args.output_path)
-
     schemas = get_default_input_schemas()
     data = input_schemas_to_dict(schemas)
 
     logger.info("Writing input schema file: %s", output_path)
-    write_json_data(data, output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
     print(f"Input schema written to: {output_path}")
     return 0
 
-
 def run_template_mode(args: argparse.Namespace) -> int:
     output_path = Path(args.output_path)
-
     schemas = get_default_input_schemas()
     data = create_input_template(schemas)
 
     logger.info("Writing input template file: %s", output_path)
-    write_json_data(data, output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
     print(f"Input template written to: {output_path}")
     return 0

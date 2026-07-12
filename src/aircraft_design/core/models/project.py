@@ -1,107 +1,107 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Dict, List, Optional
+from pydantic import BaseModel, Field, field_validator, ConfigDict, ValidationError
 
 from aircraft_design.core.errors import InputValidationError
 
-JsonDict = dict[str, Any]
+JsonDict = Dict[str, Any]
 
 
-@dataclass(slots=True)
-class ProjectInput:
+# --- Заготовки для строгих моделей секций ---
+# ConfigDict(extra="allow") позволяет обращаться к ним как к словарям на этапе перехода.
+# В будущем сюда нужно будет добавить конкретные поля, например: wing_area: float
+
+class AircraftData(BaseModel):
+    """Данные о типе и назначении самолета."""
+    model_config = ConfigDict(extra="allow")
+
+
+class PreliminarySizingData(BaseModel):
+    """Данные для блока предварительного расчета."""
+    model_config = ConfigDict(extra="allow")
+
+
+class MassEstimationData(BaseModel):
+    """Данные для блока расчета масс."""
+    model_config = ConfigDict(extra="allow")
+
+
+class GeometryData(BaseModel):
+    """Данные для блока расчета геометрии."""
+    model_config = ConfigDict(extra="allow")
+
+
+class Metadata(BaseModel):
+    """Метаданные проекта (название, описание и т.д.)."""
+    model_config = ConfigDict(extra="allow")
+
+
+class ProjectInput(BaseModel):
     """
-    Full input data for one aircraft preliminary design calculation.
-
-    For now, sections are intentionally stored as dictionaries.
-    Later we will replace them with stricter typed models.
+    Полные входные данные для одного расчета предварительного проектирования самолета.
     """
-
     schema_version: str
-    aircraft: JsonDict = field(default_factory=dict)
-    preliminary_sizing: JsonDict = field(default_factory=dict)
-    mass_estimation: JsonDict = field(default_factory=dict)
-    geometry: JsonDict = field(default_factory=dict)
-    metadata: JsonDict = field(default_factory=dict)
+    aircraft: AircraftData = Field(default_factory=AircraftData)
+    preliminary_sizing: PreliminarySizingData = Field(default_factory=PreliminarySizingData)
+    mass_estimation: MassEstimationData = Field(default_factory=MassEstimationData)
+    geometry: GeometryData = Field(default_factory=GeometryData)
+    metadata: Metadata = Field(default_factory=Metadata)
+
+    @field_validator("schema_version")
+    @classmethod
+    def _check_schema_version(cls, v: str) -> str:
+        if v != "1.0":
+            raise ValueError(f"Неподдерживаемая версия схемы: {v}. Ожидается: 1.0.")
+        return v
 
     @classmethod
     def from_dict(cls, data: JsonDict) -> "ProjectInput":
+        """
+        Создает объект ProjectInput из словаря.
+        Сохранено для обратной совместимости с существующим кодом загрузчиков.
+        """
         if not isinstance(data, dict):
-            raise InputValidationError("Input JSON root must be an object.")
+            raise InputValidationError("Корневой элемент JSON должен быть объектом.")
 
-        schema_version = data.get("schema_version")
-        if not isinstance(schema_version, str):
-            raise InputValidationError("Missing or invalid field: schema_version.")
-
-        if schema_version != "1.0":
-            raise InputValidationError(
-                f"Unsupported schema_version: {schema_version}. Expected: 1.0."
-            )
-
-        required_sections = [
-            "aircraft",
-            "preliminary_sizing",
-            "mass_estimation",
-            "geometry",
-        ]
-
-        for section in required_sections:
-            if section not in data:
-                raise InputValidationError(f"Missing required section: {section}.")
-            if not isinstance(data[section], dict):
-                raise InputValidationError(f"Section '{section}' must be an object.")
-
-        metadata = data.get("metadata", {})
-        if not isinstance(metadata, dict):
-            raise InputValidationError("Section 'metadata' must be an object.")
-
-        return cls(
-            schema_version=schema_version,
-            aircraft=data["aircraft"],
-            preliminary_sizing=data["preliminary_sizing"],
-            mass_estimation=data["mass_estimation"],
-            geometry=data["geometry"],
-            metadata=metadata,
-        )
+        try:
+            return cls.model_validate(data)
+        except ValidationError as e:
+            # Перехватываем ошибки Pydantic и отдаем вашу кастомную ошибку
+            raise InputValidationError(f"Ошибка валидации входных данных: {e}")
 
 
-@dataclass(slots=True)
-class CalculationTraceRecord:
+class CalculationTraceRecord(BaseModel):
     """
-    One trace record explaining how a significant calculated value was obtained.
+    Одна запись трассировки, объясняющая, как было получено важное расчетное значение.
     """
-
     block_name: str
     value_name: str
     formula: str
-    values: JsonDict = field(default_factory=dict)
+    values: JsonDict = Field(default_factory=dict)
     result: Any = None
-    unit: str | None = None
-    description: str | None = None
+    unit: Optional[str] = None
+    description: Optional[str] = None
 
 
-@dataclass(slots=True)
-class CalculationTrace:
+class CalculationTrace(BaseModel):
     """
-    Calculation trace accumulator.
-
-    Blocks should add records here instead of writing long formula explanations
-    directly to logger.debug().
+    Накопитель трассировки расчетов.
+    Блоки должны добавлять записи сюда вместо прямого логирования формул.
     """
-
     enabled: bool = True
-    records: list[CalculationTraceRecord] = field(default_factory=list)
+    records: List[CalculationTraceRecord] = Field(default_factory=list)
 
     def add(
-        self,
-        *,
-        block_name: str,
-        value_name: str,
-        formula: str,
-        values: JsonDict | None = None,
-        result: Any = None,
-        unit: str | None = None,
-        description: str | None = None,
+            self,
+            *,
+            block_name: str,
+            value_name: str,
+            formula: str,
+            values: Optional[JsonDict] = None,
+            result: Any = None,
+            unit: Optional[str] = None,
+            description: Optional[str] = None,
     ) -> None:
         if not self.enabled:
             return
@@ -119,27 +119,25 @@ class CalculationTrace:
         )
 
 
-@dataclass(slots=True)
-class CalculationState:
+class CalculationState(BaseModel):
     """
-    Mutable calculation state shared between blocks during one run.
+    Изменяемое состояние расчета, общее для всех блоков в течение одного запуска.
     """
-
     project_input: ProjectInput
-    data: JsonDict = field(default_factory=dict)
-    warnings: list[str] = field(default_factory=list)
-    trace: CalculationTrace = field(default_factory=CalculationTrace)
+    data: JsonDict = Field(default_factory=dict)
+    warnings: List[str] = Field(default_factory=list)
+    trace: CalculationTrace = Field(default_factory=CalculationTrace)
 
     def add_trace(
-        self,
-        *,
-        block_name: str,
-        value_name: str,
-        formula: str,
-        values: JsonDict | None = None,
-        result: Any = None,
-        unit: str | None = None,
-        description: str | None = None,
+            self,
+            *,
+            block_name: str,
+            value_name: str,
+            formula: str,
+            values: Optional[JsonDict] = None,
+            result: Any = None,
+            unit: Optional[str] = None,
+            description: Optional[str] = None,
     ) -> None:
         self.trace.add(
             block_name=block_name,
@@ -152,23 +150,27 @@ class CalculationState:
         )
 
 
-@dataclass(slots=True)
-class BlockResult:
+class BlockResult(BaseModel):
+    """
+    Результат выполнения одного расчетного блока.
+    """
     block_name: str
     success: bool
-    outputs: JsonDict = field(default_factory=dict)
-    warnings: list[str] = field(default_factory=list)
-    errors: list[str] = field(default_factory=list)
+    outputs: JsonDict = Field(default_factory=dict)
+    warnings: List[str] = Field(default_factory=list)
+    errors: List[str] = Field(default_factory=list)
 
 
-@dataclass(slots=True)
-class ProjectResult:
+class ProjectResult(BaseModel):
+    """
+    Итоговый результат выполнения всего проекта.
+    """
     schema_version: str
     success: bool = True
-    block_results: list[BlockResult] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
-    errors: list[str] = field(default_factory=list)
-    trace: list[CalculationTraceRecord] = field(default_factory=list)
+    block_results: List[BlockResult] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    errors: List[str] = Field(default_factory=list)
+    trace: List[CalculationTraceRecord] = Field(default_factory=list)
 
     @property
     def outputs(self) -> JsonDict:

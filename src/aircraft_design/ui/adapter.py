@@ -165,7 +165,7 @@ def _choice_display_names(
 
 
 def build_input_table_sections(
-    values: dict[str, dict[str, Any]] | None = None,
+    values: dict[str, Any] | None = None,
 ) -> list[InputSectionView]:
     """
     Build UI input table sections from input schemas.
@@ -181,7 +181,9 @@ def build_input_table_sections(
     sections: list[InputSectionView] = []
 
     for schema in get_input_schemas():
-        section_values = values.get(schema.section_name, {})
+        # Извлекаем сырую секцию и безопасно приводим её к словарю
+        raw_section = values.get(schema.section_name, {})
+        section_values = _as_dict(raw_section)
 
         fields: list[InputFieldView] = []
 
@@ -649,5 +651,9 @@ def _normalize_points(raw_points: Any) -> list[tuple[float, float]]:
 def _as_dict(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return value
+
+    # Поддержка Pydantic-моделей
+    if hasattr(value, "model_dump"):
+        return value.model_dump()
 
     return {}

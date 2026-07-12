@@ -1,64 +1,25 @@
-from __future__ import annotations
-
-import json
-from dataclasses import asdict
 from pathlib import Path
-from typing import Any
-
-from aircraft_design.core.models import ProjectResult
+from aircraft_design.core.models.project import ProjectInput, ProjectResult
 
 
-def write_json_result(
-    result: ProjectResult,
-    path: str | Path,
-    *,
-    indent: int = 2,
-) -> None:
+def write_project_input(project_input: ProjectInput, file_path: str | Path) -> None:
     """
-    Write machine-readable calculation result to JSON file.
-
-    Unlike TXT report, JSON output intentionally contains full technical data,
-    including chart_data and nested block outputs.
+    Сохраняет входные данные проекта в JSON.
     """
-    output_path = Path(path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    path = Path(file_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
 
-    output_path.write_text(
-        format_json_result(result, indent=indent),
-        encoding="utf-8",
-    )
-
-
-def format_json_result(
-    result: ProjectResult,
-    *,
-    indent: int = 2,
-) -> str:
-    return json.dumps(
-        project_result_to_dict(result),
-        ensure_ascii=False,
-        indent=indent,
-    ) + "\n"
+    # Pydantic сам генерирует красивый JSON
+    json_data = project_input.model_dump_json(indent=4)
+    path.write_text(json_data, encoding="utf-8")
 
 
-def project_result_to_dict(result: ProjectResult) -> dict[str, Any]:
+def write_project_result(project_result: ProjectResult, file_path: str | Path) -> None:
     """
-    Convert ProjectResult to JSON-serializable dictionary.
-
-    The 'outputs' field is duplicated as a convenience aggregate:
-    - block_results keeps full block-by-block information;
-    - outputs gives quick access to successful block outputs by block name;
-    - trace explains how significant values were calculated.
+    Сохраняет результаты расчетов в JSON.
     """
-    data = asdict(result)
+    path = Path(file_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
 
-    return {
-        "result_format": "aircraft_preliminary_design.result.v1",
-        "schema_version": data["schema_version"],
-        "success": data["success"],
-        "warnings": data["warnings"],
-        "errors": data["errors"],
-        "block_results": data["block_results"],
-        "outputs": result.outputs,
-        "trace": data["trace"],
-    }
+    json_data = project_result.model_dump_json(indent=4)
+    path.write_text(json_data, encoding="utf-8")

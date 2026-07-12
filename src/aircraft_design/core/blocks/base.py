@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 
+from pydantic import BaseModel
+
 from aircraft_design.core.models import (
     BlockInputSchema,
     BlockResult,
@@ -14,10 +16,10 @@ logger = logging.getLogger(__name__)
 
 class BaseBlock(ABC):
     """
-    Base class for all calculation blocks.
+    Базовый класс для всех расчётных блоков.
 
-    A block must not know anything about UI, CLI, files or Qt.
-    It receives CalculationState and returns calculated outputs.
+    Блок ничего не знает о UI, CLI, файлах или Qt.
+    Он получает CalculationState и возвращает рассчитанные выходные данные.
     """
 
     name: str = "base_block"
@@ -30,26 +32,24 @@ class BaseBlock(ABC):
     def validate(self, state: CalculationState) -> None:
         for section_name in self.required_input_sections:
             if not hasattr(state.project_input, section_name):
-                raise ValueError(f"Unknown input section: {section_name}")
+                raise ValueError(f"Неизвестная входная секция: {section_name}")
 
             section = getattr(state.project_input, section_name)
 
-            if not isinstance(section, dict):
-                raise ValueError(f"Input section '{section_name}' must be a dictionary.")
+            # Секция может быть как словарем (legacy), так и Pydantic-моделью
+            if not isinstance(section, (dict, BaseModel)):
+                raise ValueError(f"Входная секция '{section_name}' должна быть словарем или BaseModel.")
 
-        if self.input_schema is not None:
-            section = getattr(state.project_input, self.input_schema.section_name)
-            self.input_schema.normalize_section(section)
 
     def run(self, state: CalculationState) -> BlockResult:
-        logger.info("Starting block: %s", self.name)
+        logger.info("Запуск блока: %s", self.name)
 
         self.validate(state)
         outputs = self.calculate(state)
 
         state.data[self.name] = outputs
 
-        logger.info("Finished block: %s", self.name)
+        logger.info("Блок завершен: %s", self.name)
 
         return BlockResult(
             block_name=self.name,
@@ -59,4 +59,4 @@ class BaseBlock(ABC):
 
     @abstractmethod
     def calculate(self, state: CalculationState) -> dict:
-        """Run block calculation and return output dictionary."""
+        """Запуск расчёта блока и возврат словаря с результатами."""

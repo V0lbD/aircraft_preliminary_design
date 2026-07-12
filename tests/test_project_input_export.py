@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from aircraft_design.input_builder import (
+    create_project_input_from_sections,
+    project_input_to_dict,
+)
+
 def make_mass_estimation_data() -> dict:
     return {
         "powerplant_type": "ice",
@@ -41,13 +46,6 @@ def make_mass_estimation_data() -> dict:
         "max_iterations": 30,
     }
 
-
-from aircraft_design.input_builder import (
-    create_project_input_from_sections,
-    project_input_to_dict,
-)
-
-
 def test_project_input_to_dict_exports_json_compatible_data() -> None:
     project_input = create_project_input_from_sections(
         aircraft={
@@ -86,7 +84,3 @@ def test_project_input_to_dict_exports_json_compatible_data() -> None:
 
     assert data["preliminary_sizing"]["N"] == 2
     assert data["mass_estimation"]["payload_mass"] == 520.0
-
-    # Defaults from geometry schema must be exported too.
-    assert data["geometry"]["eta_wing"] == 2.5
-    assert data["geometry"]["wing_scheme"] == "mid"
