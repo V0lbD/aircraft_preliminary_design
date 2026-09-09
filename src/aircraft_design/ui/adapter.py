@@ -255,10 +255,12 @@ def build_output_table_rows(result: ProjectResult) -> list[OutputRowView]:
 
     preliminary = outputs.get("preliminary_sizing", {})
     mass = outputs.get("mass_estimation", {})
+    tech_outputs = outputs.get("technology", {})
     geometry = outputs.get("geometry", {})
 
     rows.extend(_build_preliminary_rows(preliminary))
     rows.extend(_build_mass_rows(mass))
+    rows.extend(_build_technology_rows(tech_outputs))
     rows.extend(_build_geometry_rows(geometry))
 
     return rows
@@ -442,108 +444,17 @@ def _build_mass_rows(mass: dict[str, Any]) -> list[OutputRowView]:
                 OutputRowView(
                     section="Итерация расчёта масс",
                     name="iterations",
-                    display_name="Количество итераций",
+                    display_name="Количество затраченных итераций",
                     value=component_iteration.get("iterations"),
                 ),
                 OutputRowView(
                     section="Итерация расчёта масс",
-                    name="tolerance",
-                    display_name="Допуск по изменению нагрузки на крыло",
-                    value=component_iteration.get("tolerance"),
-                ),
-                OutputRowView(
-                    section="Итерация расчёта масс",
                     name="relative_delta_wing_loading",
-                    display_name="Последнее изменение нагрузки на крыло",
-                    value=component_iteration.get("relative_delta_wing_loading"),
-                ),
-                OutputRowView(
-                    section="Итерация расчёта масс",
-                    name="initial_m0",
-                    display_name="Масса в первом приближении",
-                    value=component_iteration.get("initial_m0"),
-                    unit="кг",
-                ),
-                OutputRowView(
-                    section="Итерация расчёта масс",
-                    name="final_m0",
-                    display_name="Финальная расчётная масса",
-                    value=component_iteration.get("final_m0"),
-                    unit="кг",
-                ),
-                OutputRowView(
-                    section="Итерация расчёта масс",
-                    name="initial_wing_area",
-                    display_name="Исходная площадь крыла",
-                    value=component_iteration.get("initial_wing_area"),
-                    unit="м²",
-                ),
-                OutputRowView(
-                    section="Итерация расчёта масс",
-                    name="final_wing_area",
-                    display_name="Финальная площадь крыла",
-                    value=component_iteration.get("final_wing_area"),
-                    unit="м²",
+                    display_name="Финальная невязка массы",
+                    value=round(component_iteration.get("relative_delta_wing_loading", 0), 6),
                 ),
             ]
         )
-
-        structure_ratios = _as_dict(component_iteration.get("structure_ratios"))
-        if structure_ratios:
-            rows.extend(
-                [
-                    OutputRowView(
-                        section="Относительные массы конструкции",
-                        name="structure_wing_ratio",
-                        display_name="Крыло",
-                        value=structure_ratios.get("wing"),
-                    ),
-                    OutputRowView(
-                        section="Относительные массы конструкции",
-                        name="structure_fuselage_ratio",
-                        display_name="Фюзеляж",
-                        value=structure_ratios.get("fuselage"),
-                    ),
-                    OutputRowView(
-                        section="Относительные массы конструкции",
-                        name="structure_tail_ratio",
-                        display_name="Оперение",
-                        value=structure_ratios.get("tail"),
-                    ),
-                    OutputRowView(
-                        section="Относительные массы конструкции",
-                        name="structure_landing_gear_ratio",
-                        display_name="Шасси",
-                        value=structure_ratios.get("landing_gear"),
-                    ),
-                    OutputRowView(
-                        section="Относительные массы конструкции",
-                        name="structure_total_ratio",
-                        display_name="Итого конструкция",
-                        value=structure_ratios.get("total"),
-                    ),
-                ]
-            )
-
-    mass_ratios = _as_dict(mass.get("mass_ratios"))
-
-    if mass_ratios:
-        ratio_rows = [
-            ("battery_mass_ratio", "АКБ на полёт"),
-            ("fuel_mass_ratio", "Топливо"),
-            ("powerplant_mass_ratio", "Силовая установка"),
-            ("special_equipment_mass_ratio", "Оборудование СН"),
-            ("operating_empty_mass_ratio", "Пустой самолёт"),
-        ]
-
-        for name, display_name in ratio_rows:
-            _append_output_row(
-                rows,
-                section="Относительные массы",
-                name=name,
-                display_name=display_name,
-                value=mass_ratios.get(name),
-            )
 
     component_masses = _as_dict(mass.get("component_masses"))
 
@@ -552,19 +463,12 @@ def _build_mass_rows(mass: dict[str, Any]) -> list[OutputRowView]:
             ("payload", "Целевая нагрузка"),
             ("service_load", "Служебная нагрузка"),
             ("fuel", "Топливо"),
-            ("battery_energy", "АКБ на полёт"),
-            ("battery_equipment", "АКБ бортового оборудования"),
-            ("control_equipment", "Оборудование управления"),
             ("wing", "Крыло"),
             ("fuselage", "Фюзеляж"),
             ("tail", "Оперение"),
             ("landing_gear", "Шасси"),
-            ("structure", "Конструкция"),
             ("powerplant", "Силовая установка"),
             ("special_equipment", "Оборудование СН"),
-            ("operating_empty_mass", "Пустой самолёт по компонентам"),
-            ("useful_load_mass", "Целевая + служебная нагрузка"),
-            ("total_mass", "Суммарная масса по компонентам"),
         ]
 
         for name, display_name in component_rows:
@@ -576,6 +480,103 @@ def _build_mass_rows(mass: dict[str, Any]) -> list[OutputRowView]:
                 value=component_masses.get(name),
                 unit="кг",
             )
+
+    return rows
+
+
+def _build_technology_rows(tech: dict[str, Any]) -> list[OutputRowView]:
+    if not tech:
+        return []
+
+    rows: list[OutputRowView] = []
+
+    # Помощник для перевода в миллионы
+    def _fmt_money(val: Any) -> float | None:
+        if val is None:
+            return None
+        try:
+            return round(float(val) / 1_000_000, 2)
+        except (ValueError, TypeError):
+            return None
+
+    # 1. Выводим главные итоги
+    _append_output_row(
+        rows,
+        section="Технологии и экономика",
+        name="best_cost_seb1",
+        display_name="Себестоимость 1 экземпляра",
+        value=_fmt_money(tech.get("best_cost_seb1")),
+        unit="млн руб.",
+    )
+
+    details = _as_dict(tech.get("details"))
+    if details:
+        _append_output_row(
+            rows,
+            section="Технологии и экономика",
+            name="m0_new",
+            display_name="Уточнённая масса m0",
+            value=round(details.get("m0_new", 0), 2) if details.get("m0_new") else None,
+            unit="кг",
+        )
+        _append_output_row(
+            rows,
+            section="Технологии и экономика",
+            name="CSUM_total",
+            display_name="Суммарная стоимость партии",
+            value=_fmt_money(details.get("CSUM_total")),
+            unit="млн руб.",
+        )
+        _append_output_row(
+            rows,
+            section="Технологии и экономика",
+            name="CLA_I_materials",
+            display_name="Стоимость материалов",
+            value=_fmt_money(details.get("CLA_I_materials")),
+            unit="млн руб.",
+        )
+        _append_output_row(
+            rows,
+            section="Технологии и экономика",
+            name="COSN_machines",
+            display_name="Стоимость станков/оснастки",
+            value=_fmt_money(details.get("COSN_machines")),
+            unit="млн руб.",
+        )
+        _append_output_row(
+            rows,
+            section="Технологии и экономика",
+            name="CTRUD_labor",
+            display_name="Фонд оплаты труда",
+            value=_fmt_money(details.get("CTRUD_labor")),
+            unit="млн руб.",
+        )
+        _append_output_row(
+            rows,
+            section="Технологии и экономика",
+            name="CSPL_space",
+            display_name="Стоимость площадей",
+            value=_fmt_money(details.get("CSPL_space")),
+            unit="млн руб.",
+        )
+
+    # 2. Выводим выбранную комбинацию материалов
+    combo = _as_dict(tech.get("best_combination"))
+    if combo:
+        def format_combo(c: Any) -> str:
+            if not c or len(c) != 3:
+                return "-"
+            names = {
+                "alum_1": "Ал. 1",
+                "alum_2": "Ал. 2",
+                "comp_1": "Комп. 1",
+                "comp_2": "Комп. 2"
+            }
+            return f"Обш: {names.get(c[0], c[0])} | Прод: {names.get(c[1], c[1])} | Попер: {names.get(c[2], c[2])}"
+
+        _append_output_row(rows, section="Выбранные технологии", name="combo_wing", display_name="Крыло", value=format_combo(combo.get("wing")))
+        _append_output_row(rows, section="Выбранные технологии", name="combo_fuselage", display_name="Фюзеляж", value=format_combo(combo.get("fuselage")))
+        _append_output_row(rows, section="Выбранные технологии", name="combo_tail", display_name="Оперение", value=format_combo(combo.get("tail")))
 
     return rows
 

@@ -31,6 +31,8 @@ $pyinstallerArgs = @(
     $modeArg,
     "--name", $Name,
     "--paths", "src",
+    "--add-data", "inputs/tables;inputs/tables"
+    "--add-data", "inputs/projects;inputs/projects"
     "--collect-all", "PySide6",
     "--collect-all", "matplotlib",
     "--collect-submodules", "aircraft_design",

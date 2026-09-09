@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import Any
+import sys
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -18,7 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from aircraft_design.app import run_calculation_from_sections
+from aircraft_design.app import run_calculation
 from aircraft_design.input_builder import (
     create_project_input_from_sections,
 )
@@ -40,8 +41,23 @@ from aircraft_design.ui.components import (
     InputTableWidget,
     OutputTableWidget,
 )
-
+from aircraft_design.io.excel_loader import load_technology_database
 logger = logging.getLogger(__name__)
+
+
+def get_resource_path(relative_path: str) -> Path:
+    """
+    Возвращает абсолютный путь к ресурсу.
+    Работает как для обычного запуска из кода, так и для скомпилированного .exe.
+    """
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        # Если запущено как скомпилированный .exe, ищем во временной папке PyInstaller
+        base_path = Path(sys._MEIPASS)
+    else:
+        # Если запущено как обычный скрипт, ищем относительно корня проекта (или текущей директории)
+        base_path = Path.cwd()
+
+    return base_path / relative_path
 
 
 class MainWindow(QMainWindow):
@@ -137,7 +153,7 @@ class MainWindow(QMainWindow):
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Загрузить входной JSON",
-            "examples/inputs",
+            "inputs/projects",
             "JSON files (*.json);;All files (*.*)",
         )
 
@@ -161,7 +177,7 @@ class MainWindow(QMainWindow):
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Сохранить входной JSON",
-            "examples/inputs/input_from_ui.json",
+            "inputs/projects/input_from_ui.json",
             "JSON files (*.json);;All files (*.*)",
         )
 
@@ -189,7 +205,10 @@ class MainWindow(QMainWindow):
     def _build_current_project_input(self) -> ProjectInput:
         section_values = self._input_table.get_section_values()
 
-        return create_project_input_from_sections(
+        ui_metadata = section_values.get("metadata", {})
+        self._metadata.update(ui_metadata)
+
+        project_input = create_project_input_from_sections(
             preliminary_sizing=section_values.get("preliminary_sizing", {}),
             mass_estimation=section_values.get("mass_estimation", {}),
             geometry=section_values.get("geometry", {}),
@@ -197,11 +216,23 @@ class MainWindow(QMainWindow):
             metadata=self._metadata,
         )
 
+        # Подгружаем базу данных технологий из папки tables
+        try:
+            db_path = get_resource_path("inputs/tables")
+            project_input.technology_db = load_technology_database(db_path)
+        except Exception as exc:
+            logger.warning("Не удалось загрузить базу технологий: %s", exc)
+            # Мы не прерываем работу интерфейса здесь. Если БД не загрузилась,
+            # блок TechnologyBlock.validate() сам выбросит красивую ошибку при расчёте.
+
+        return project_input
+
     def _load_project_input_to_ui(self, project_input: ProjectInput) -> None:
         self._aircraft = dict(project_input.aircraft)
         self._metadata = dict(project_input.metadata)
 
         values = {
+            "metadata": project_input.metadata,
             "preliminary_sizing": project_input.preliminary_sizing,
             "mass_estimation": project_input.mass_estimation,
             "geometry": project_input.geometry,
@@ -218,14 +249,12 @@ class MainWindow(QMainWindow):
         try:
             project_input = self._build_current_project_input()
 
-            result = run_calculation_from_sections(
-                preliminary_sizing=project_input.preliminary_sizing,
-                mass_estimation=project_input.mass_estimation,
-                geometry=project_input.geometry,
-                aircraft=project_input.aircraft,
-                metadata=project_input.metadata,
+            result = run_calculation(
+                project_input=project_input,
                 trace_enabled=True,
             )
+
+            self._last_result = result
 
             self._last_result = result
             self._show_result(result)

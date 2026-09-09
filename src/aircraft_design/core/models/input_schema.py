@@ -37,7 +37,7 @@ class ParameterSpec(BaseModel):
     # Вся ручная логика _normalize_number, _normalize_integer и т.д.
     # нам больше не нужна для самой схемы! Pydantic будет валидировать ДАННЫЕ
     # в ProjectInput.
-    # Но если тебе нужен этот метод для совместимости со старым кодом:
+    # Но если нужен этот метод для совместимости со старым кодом:
     def normalize(self, raw_value: Any) -> Any:
         if self.choices is not None and raw_value not in self.choices:
             raise InputValidationError(

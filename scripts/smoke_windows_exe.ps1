@@ -1,6 +1,6 @@
 param(
     [string]$ExePath = "dist\aircraft-design\aircraft-design.exe",
-    [string]$InputPath = "examples\inputs\AN14.json",
+    [string]$InputPath = "inputs\projects\AN14.json",
     [switch]$LaunchGui
 )
 

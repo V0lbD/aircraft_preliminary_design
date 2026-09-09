@@ -5,6 +5,8 @@ from pydantic import BaseModel, Field, field_validator, ConfigDict, ValidationEr
 
 from aircraft_design.core.errors import InputValidationError
 
+from aircraft_design.core.models.technology import TechnologyDatabase
+
 JsonDict = Dict[str, Any]
 
 
@@ -34,6 +36,8 @@ class GeometryData(BaseModel):
 
 class Metadata(BaseModel):
     """Метаданные проекта (название, описание и т.д.)."""
+    NLA: float = Field(default=100.0, description="Количество ЛА в партии")
+    T: float = Field(default=50.0, description="Срок выполнения заказа в неделях")
     model_config = ConfigDict(extra="allow")
 
 
@@ -47,6 +51,7 @@ class ProjectInput(BaseModel):
     mass_estimation: MassEstimationData = Field(default_factory=MassEstimationData)
     geometry: GeometryData = Field(default_factory=GeometryData)
     metadata: Metadata = Field(default_factory=Metadata)
+    technology_db: TechnologyDatabase | None = Field(default=None, exclude=True)
 
     @field_validator("schema_version")
     @classmethod
