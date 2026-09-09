@@ -19,6 +19,7 @@ def create_project_input(
 
 def create_project_input_from_sections(
     *,
+    feasibility: JsonDict,
     preliminary_sizing: JsonDict,
     mass_estimation: JsonDict,
     geometry: JsonDict,
@@ -34,6 +35,7 @@ def create_project_input_from_sections(
         "schema_version": schema_version,
         "metadata": metadata or {},
         "aircraft": aircraft or {},
+        "feasibility": feasibility,
         "preliminary_sizing": preliminary_sizing,
         "mass_estimation": mass_estimation,
         "geometry": geometry,

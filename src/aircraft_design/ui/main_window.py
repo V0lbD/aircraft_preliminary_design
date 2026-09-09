@@ -209,6 +209,7 @@ class MainWindow(QMainWindow):
         self._metadata.update(ui_metadata)
 
         project_input = create_project_input_from_sections(
+            feasibility=section_values.get("feasibility", {}),
             preliminary_sizing=section_values.get("preliminary_sizing", {}),
             mass_estimation=section_values.get("mass_estimation", {}),
             geometry=section_values.get("geometry", {}),
@@ -233,6 +234,7 @@ class MainWindow(QMainWindow):
 
         values = {
             "metadata": project_input.metadata,
+            "feasibility": project_input.feasibility,
             "preliminary_sizing": project_input.preliminary_sizing,
             "mass_estimation": project_input.mass_estimation,
             "geometry": project_input.geometry,

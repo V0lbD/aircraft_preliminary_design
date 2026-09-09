@@ -3,6 +3,105 @@
   "schema_version": "1.0",
   "sections": [
     {
+      "section_name": "feasibility",
+      "block_name": "feasibility_check",
+      "display_name": "Оценка реализуемости",
+      "description": "Проверка ТТТ проекта на соответствие статистике аналогов.",
+      "parameters": [
+        {
+          "name": "powerplant_type",
+          "type": "string",
+          "display_name": "Тип силовой установки",
+          "description": "Электрический, топливный или гибридный.",
+          "unit": null,
+          "required": true,
+          "default": "ice",
+          "min_value": null,
+          "max_value": null,
+          "choices": ["electric", "ice", "hybrid"],
+          "group": "general"
+        },
+        {
+          "name": "target_takeoff_mass",
+          "type": "number",
+          "display_name": "Целевая взлётная масса",
+          "description": "Ожидаемая взлётная масса для выбора группы аналогов.",
+          "unit": "kg",
+          "required": true,
+          "default": 3600.0,
+          "min_value": 0,
+          "max_value": null,
+          "choices": null,
+          "group": "general"
+        },
+        {
+          "name": "design_range",
+          "type": "number",
+          "display_name": "Практическая дальность",
+          "description": "Требуемая дальность полёта.",
+          "unit": "km",
+          "required": true,
+          "default": 650.0,
+          "min_value": 0,
+          "max_value": null,
+          "choices": null,
+          "group": "mission"
+        },
+        {
+          "name": "flight_duration_h",
+          "type": "number",
+          "display_name": "Длительность полёта",
+          "description": "Требуемое время нахождения в воздухе.",
+          "unit": "h",
+          "required": true,
+          "default": 4.0,
+          "min_value": 0,
+          "max_value": null,
+          "choices": null,
+          "group": "mission"
+        },
+        {
+          "name": "max_speed",
+          "type": "number",
+          "display_name": "Максимальная скорость",
+          "description": "Максимальная скорость горизонтального полёта.",
+          "unit": "km/h",
+          "required": true,
+          "default": 210.0,
+          "min_value": 0,
+          "max_value": null,
+          "choices": null,
+          "group": "performance"
+        },
+        {
+          "name": "practical_ceiling_m",
+          "type": "number",
+          "display_name": "Практический потолок",
+          "description": "Максимальная высота полёта.",
+          "unit": "m",
+          "required": true,
+          "default": 5000.0,
+          "min_value": 0,
+          "max_value": null,
+          "choices": null,
+          "group": "performance"
+        },
+        {
+          "name": "payload_mass",
+          "type": "number",
+          "display_name": "Полезная нагрузка",
+          "description": "Масса целевой нагрузки.",
+          "unit": "kg",
+          "required": true,
+          "default": 520.0,
+          "min_value": 0,
+          "max_value": null,
+          "choices": null,
+          "group": "general"
+        }
+      ]
+    },
+    {
       "section_name": "preliminary_sizing",
       "block_name": "preliminary_sizing",
       "display_name": "Предварительные характеристики",

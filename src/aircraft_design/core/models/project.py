@@ -18,6 +18,10 @@ class AircraftData(BaseModel):
     """Данные о типе и назначении самолета."""
     model_config = ConfigDict(extra="allow")
 
+class FeasibilityData(BaseModel):
+    """Данные для блока оценки реализуемости."""
+    model_config = ConfigDict(extra="allow")
+    
 
 class PreliminarySizingData(BaseModel):
     """Данные для блока предварительного расчета."""
@@ -47,6 +51,7 @@ class ProjectInput(BaseModel):
     """
     schema_version: str
     aircraft: AircraftData = Field(default_factory=AircraftData)
+    feasibility: FeasibilityData = Field(default_factory=FeasibilityData)
     preliminary_sizing: PreliminarySizingData = Field(default_factory=PreliminarySizingData)
     mass_estimation: MassEstimationData = Field(default_factory=MassEstimationData)
     geometry: GeometryData = Field(default_factory=GeometryData)
