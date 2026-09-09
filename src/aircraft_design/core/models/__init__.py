@@ -14,6 +14,8 @@ from aircraft_design.core.models.project import (
     ProjectResult,
 )
 
+from .technology import TechnologyDatabase
+
 __all__ = [
     "BlockInputSchema",
     "BlockResult",

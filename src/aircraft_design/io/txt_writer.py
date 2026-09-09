@@ -32,6 +32,7 @@ def format_txt_report(result: ProjectResult) -> str:
     lines.extend(_format_header(result))
     lines.extend(_format_preliminary_sizing(result))
     lines.extend(_format_mass_estimation(result))
+    lines.extend(_format_technology(result))
     lines.extend(_format_geometry(result))
     lines.extend(_format_block_status(result))
     lines.extend(_format_warnings_and_errors(result))
@@ -194,11 +195,70 @@ def _format_mass_estimation(result: ProjectResult) -> list[str]:
     return lines
 
 
+def _format_technology(result: ProjectResult) -> list[str]:
+    outputs = _get_block_outputs(result, "technology")
+
+    lines = [
+        "3. Технологии и экономика",
+        "-" * 60,
+    ]
+
+    if not outputs:
+        lines.append("Нет данных.")
+        lines.append("")
+        return lines
+
+    combo = _as_dict(outputs.get("best_combination"))
+    details = _as_dict(outputs.get("details"))
+
+    def format_combo(c: tuple | list | None) -> str:
+        if not c or len(c) != 3:
+            return "Нет данных"
+        names = {"alum_1": "Алюминий 1", "alum_2": "Алюминий 2", "comp_1": "Композит 1", "comp_2": "Композит 2"}
+        return f"Обшивка: {names.get(c[0], c[0])}, Прод. набор: {names.get(c[1], c[1])}, Попер. набор: {names.get(c[2], c[2])}"
+
+    # Помощник для вывода денег в миллионах рублей
+    def _fmt_money(val: Any) -> str:
+        if val is None:
+            return "-"
+        try:
+            return f"{float(val) / 1_000_000:.2f} млн руб."
+        except (ValueError, TypeError):
+            return "-"
+
+    lines.extend(
+        [
+            "Оптимальная комбинация технологий:",
+            f"  Крыло: {format_combo(combo.get('wing'))}",
+            f"  Фюзеляж: {format_combo(combo.get('fuselage'))}",
+            f"  Оперение: {format_combo(combo.get('tail'))}",
+            "",
+            "Уточнённые параметры (с учётом технологий):",
+            f"  Новая взлётная масса m0: {_fmt(details.get('m0_new'), 'кг')}",
+            f"  Новая отн. масса крыла: {_fmt(details.get('m_kr_relative'))}",
+            f"  Новая отн. масса фюзеляжа: {_fmt(details.get('m_fuse_relative'))}",
+            f"  Новая отн. масса оперения: {_fmt(details.get('m_tail_relative'))}",
+            "",
+            "Экономика всей партии:",
+            f"  Стоимость материалов (CLA_I): {_fmt_money(details.get('CLA_I_materials'))}",
+            f"  Стоимость станков/оснастки (COSN): {_fmt_money(details.get('COSN_machines'))}",
+            f"  Фонд оплаты труда (CTRUD): {_fmt_money(details.get('CTRUD_labor'))}",
+            f"  Стоимость площадей (CSPL): {_fmt_money(details.get('CSPL_space'))}",
+            f"  СУММАРНАЯ СТОИМОСТЬ ПАРТИИ: {_fmt_money(details.get('CSUM_total'))}",
+            "",
+            f"СЕБЕСТОИМОСТЬ 1 ЭКЗЕМПЛЯРА (SEB_1): {_fmt_money(outputs.get('best_cost_seb1'))}",
+            "",
+        ]
+    )
+
+    return lines
+
+
 def _format_geometry(result: ProjectResult) -> list[str]:
     outputs = _get_block_outputs(result, "geometry")
 
     lines = [
-        "3. Геометрия",
+        "4. Геометрия",
         "-" * 60,
     ]
 
@@ -274,7 +334,7 @@ def _format_geometry(result: ProjectResult) -> list[str]:
 
 def _format_block_status(result: ProjectResult) -> list[str]:
     lines = [
-        "4. Статус расчётных блоков",
+        "5. Статус расчётных блоков",
         "-" * 60,
     ]
 
@@ -301,7 +361,7 @@ def _format_block_status(result: ProjectResult) -> list[str]:
 
 def _format_warnings_and_errors(result: ProjectResult) -> list[str]:
     lines = [
-        "5. Предупреждения и ошибки",
+        "6. Предупреждения и ошибки",
         "-" * 60,
     ]
 

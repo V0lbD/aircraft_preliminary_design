@@ -5,6 +5,7 @@ from aircraft_design.core.blocks import (
     GeometryBlock,
     MassEstimationBlock,
     PreliminarySizingBlock,
+    TechnologyBlock,
 )
 from aircraft_design.core.models import BlockInputSchema
 
@@ -12,6 +13,7 @@ from aircraft_design.core.models import BlockInputSchema
 DEFAULT_BLOCK_CLASSES: tuple[type[BaseBlock], ...] = (
     PreliminarySizingBlock,
     MassEstimationBlock,
+    TechnologyBlock,
     GeometryBlock,
 )
 

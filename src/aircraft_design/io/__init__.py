@@ -9,6 +9,8 @@ from aircraft_design.io.trace_writer import (
     write_trace_markdown,
 )
 
+from .excel_loader import load_standard_table, load_global_coefficients
+
 __all__ = [
     "format_trace_json",
     "format_trace_markdown",
