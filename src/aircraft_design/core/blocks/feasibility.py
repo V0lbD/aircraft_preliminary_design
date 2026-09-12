@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +53,91 @@ class FeasibilityBlock(BaseBlock):
 
     name = "feasibility_check"
     required_input_sections = ("feasibility",)
+
+    input_schema = BlockInputSchema(
+        section_name="feasibility",
+        block_name="feasibility_check",
+        display_name="Оценка реализуемости",
+        description="Проверка ТТТ проекта на соответствие статистике аналогов.",
+        parameters=(
+            ParameterSpec(
+                name="powerplant_type",
+                value_type="string",
+                display_name="Тип силовой установки",
+                description="Электрический, топливный или гибридный.",
+                required=True,
+                default="ice",
+                choices=("electric", "ice", "hybrid"),
+                group="general",
+            ),
+            ParameterSpec(
+                name="target_takeoff_mass",
+                value_type="number",
+                display_name="Целевая взлётная масса",
+                description="Ожидаемая взлётная масса для выбора группы аналогов.",
+                unit="kg",
+                required=True,
+                default=3600.0,
+                min_value=0.0,
+                group="general",
+            ),
+            ParameterSpec(
+                name="design_range",
+                value_type="number",
+                display_name="Практическая дальность",
+                description="Требуемая дальность полёта.",
+                unit="km",
+                required=True,
+                default=650.0,
+                min_value=0.0,
+                group="mission",
+            ),
+            ParameterSpec(
+                name="flight_duration_h",
+                value_type="number",
+                display_name="Длительность полёта",
+                description="Требуемое время нахождения в воздухе.",
+                unit="h",
+                required=True,
+                default=4.0,
+                min_value=0.0,
+                group="mission",
+            ),
+            ParameterSpec(
+                name="max_speed",
+                value_type="number",
+                display_name="Максимальная скорость",
+                description="Максимальная скорость горизонтального полёта.",
+                unit="km/h",
+                required=True,
+                default=210.0,
+                min_value=0.0,
+                group="performance",
+            ),
+            ParameterSpec(
+                name="practical_ceiling_m",
+                value_type="number",
+                display_name="Практический потолок",
+                description="Максимальная высота полёта.",
+                unit="m",
+                required=True,
+                default=5000.0,
+                min_value=0.0,
+                group="performance",
+            ),
+            ParameterSpec(
+                name="payload_mass",
+                value_type="number",
+                display_name="Полезная нагрузка",
+                description="Масса целевой нагрузки.",
+                unit="kg",
+                required=True,
+                default=520.0,
+                min_value=0.0,
+                group="general",
+            ),
+        ),
+    )
 
     # Укажите правильные пути до ваших файлов в проекте
     # STATS_FILE_PATH = Path("Статистика БЛА.xlsx")

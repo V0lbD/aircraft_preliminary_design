@@ -253,11 +253,13 @@ def build_output_table_rows(result: ProjectResult) -> list[OutputRowView]:
 
     outputs = result.outputs
 
+    feasibility = outputs.get("feasibility_check", {})
     preliminary = outputs.get("preliminary_sizing", {})
     mass = outputs.get("mass_estimation", {})
     tech_outputs = outputs.get("technology", {})
     geometry = outputs.get("geometry", {})
 
+    rows.extend(_build_feasibility_rows(feasibility))
     rows.extend(_build_preliminary_rows(preliminary))
     rows.extend(_build_mass_rows(mass))
     rows.extend(_build_technology_rows(tech_outputs))
@@ -312,6 +314,64 @@ def build_existence_chart_view(result: ProjectResult) -> ExistenceChartView:
         optimal_point=normalized_optimal_point,
         p0_by_v_s=normalized_p0_by_v_s,
     )
+
+
+def _build_feasibility_rows(feasibility: dict[str, Any]) -> list[OutputRowView]:
+    """
+    Создает строки таблицы вывода для результатов блока реализуемости.
+    """
+    if not feasibility:
+        return []
+
+    rows: list[OutputRowView] = []
+
+    # Преобразуем булево значение в понятный текст
+    is_feasible = feasibility.get("is_feasible")
+    if is_feasible is True:
+        feasible_str = "Да"
+    elif is_feasible is False:
+        feasible_str = "Нет (превышение > 10%)"
+    else:
+        feasible_str = None
+
+    _append_output_row(
+        rows,
+        section="Оценка реализуемости",
+        name="is_feasible",
+        display_name="Проект реализуем",
+        value=feasible_str,
+    )
+
+    # Комплексный показатель проекта
+    project_score = feasibility.get("project_score")
+    _append_output_row(
+        rows,
+        section="Оценка реализуемости",
+        name="project_score",
+        display_name="Комплексный показатель проекта (I_проект)",
+        value=round(project_score, 4) if project_score is not None else None,
+    )
+
+    # Максимальный показатель по базе
+    max_stat_score = feasibility.get("max_stat_score")
+    _append_output_row(
+        rows,
+        section="Оценка реализуемости",
+        name="max_stat_score",
+        display_name="Показатель лучшего аналога (I_стат)",
+        value=round(max_stat_score, 4) if max_stat_score is not None else None,
+    )
+
+    # Имя лучшего аналога
+    _append_output_row(
+        rows,
+        section="Оценка реализуемости",
+        name="best_analog_name",
+        display_name="Лучший аналог в группе",
+        value=feasibility.get("best_analog_name"),
+    )
+
+    return rows
 
 
 def _build_preliminary_rows(preliminary: dict[str, Any]) -> list[OutputRowView]:
