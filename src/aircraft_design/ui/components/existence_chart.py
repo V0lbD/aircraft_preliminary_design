@@ -62,8 +62,8 @@ class ExistenceChartWidget(QWidget):
             )
 
         self._axes.set_title("Область существования самолёта")
-        self._axes.set_xlabel("p0, Н/м²")
-        self._axes.set_ylabel("P0")
+        self._axes.set_xlabel("Удельная нагрузка на крыло, Н/м²")
+        self._axes.set_ylabel("Тяговооружённость")
         self._axes.set_ylim(bottom=0.0, top=self._max_y_value)
         self._axes.grid(True)
         self._axes.legend(loc="best")
@@ -77,8 +77,8 @@ class ExistenceChartWidget(QWidget):
 
     def _draw_empty_message(self) -> None:
         self._axes.set_title("Область существования самолёта")
-        self._axes.set_xlabel("p0, Н/м²")
-        self._axes.set_ylabel("P0")
+        self._axes.set_xlabel("Удельная нагрузка на крыло, Н/м²")
+        self._axes.set_ylabel("Тяговооружённость")
         self._axes.grid(True)
         self._axes.text(
             0.5,

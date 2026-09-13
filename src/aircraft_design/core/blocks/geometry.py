@@ -2,375 +2,163 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Any, Literal
-
-from pydantic import BaseModel, Field
 
 from aircraft_design.core.blocks.base import BaseBlock
 from aircraft_design.core.errors import InputValidationError
-from aircraft_design.core.models import BlockInputSchema, CalculationState, ParameterSpec
 
 logger = logging.getLogger(__name__)
 
 
-# --- СТРОГАЯ МОДЕЛЬ ВХОДНЫХ ДАННЫХ ---
-class GeometryInput(BaseModel):
-    eta_wing: float = Field(2.5, gt=0)
-    sweep_wing_quarter: float = Field(25.0)
-    wing_scheme: Literal["low", "mid", "high"] = Field("low")
-
-    k_horizontal_tail: float = Field(0.25, gt=0)
-    lambda_horizontal_tail: float = Field(4.0, gt=0)
-    eta_horizontal_tail: float = Field(3.0, gt=0)
-    sweep_horizontal_tail_quarter: float = Field(30.0)
-
-    k_vertical_tail: float = Field(0.15, gt=0)
-    lambda_vertical_tail: float = Field(1.5, gt=0)
-    eta_vertical_tail: float = Field(2.0, gt=0)
-    sweep_vertical_tail_quarter: float = Field(35.0)
-
-    k_fuselage: float = Field(1.2, gt=0)
-    lambda_fuselage: float = Field(9.0, gt=0)
-
-    model_config = {"extra": "ignore"}
-
-
 class GeometryBlock(BaseBlock):
     """
-    Geometry calculation block.
-
-    Ported from old core/block_geometry.py.
-
-    The block uses:
-    - mass_estimation.S_W
-    - preliminary_sizing.Lambda
-
-    Formula cleanup and geometry model improvements should be done later
-    in separate commits.
+    Блок расчета геометрии крыла, фюзеляжа и оперения.
+    Использует данные из блоков предварительного расчета и оценки масс.
     """
-
     name = "geometry"
-    required_input_sections = ("geometry",)
+    display_name = "Геометрия"
 
-    input_schema = BlockInputSchema(
-        section_name="geometry",
-        block_name="geometry",
-        display_name="Геометрия",
-        description="Исходные параметры для расчёта геометрии крыла, фюзеляжа и оперения.",
-        parameters=(
-            ParameterSpec(name="eta_wing", value_type="number", display_name="Сужение крыла", description="",
-                          required=False, default=2.5, min_value=0, group="wing"),
-            ParameterSpec(name="sweep_wing_quarter", value_type="number",
-                          display_name="Стреловидность крыла (1/4 хорды)", description="", unit="град", required=False,
-                          default=25.0, group="wing"),
-            ParameterSpec(name="wing_scheme", value_type="string", display_name="Схема крыла", description="",
-                          required=False, default="mid", choices=("low", "mid", "high"), group="wing"),
-            ParameterSpec(name="k_horizontal_tail", value_type="number", display_name="Коэф. площади гориз. оперения",
-                          description="", required=False, default=0.25, min_value=0, group="horizontal_tail"),
-            ParameterSpec(name="lambda_horizontal_tail", value_type="number", display_name="Удлинение гориз. оперения",
-                          description="", required=False, default=4.0, min_value=0, group="horizontal_tail"),
-            ParameterSpec(name="eta_horizontal_tail", value_type="number", display_name="Сужение гориз. оперения",
-                          description="", required=False, default=3.0, min_value=0, group="horizontal_tail"),
-            ParameterSpec(name="sweep_horizontal_tail_quarter", value_type="number",
-                          display_name="Стреловидность гориз. оперения (1/4 хорды)", description="", unit="град",
-                          required=False, default=30.0, group="horizontal_tail"),
-            ParameterSpec(name="k_vertical_tail", value_type="number", display_name="Коэф. площади верт. оперения",
-                          description="", required=False, default=0.15, min_value=0, group="vertical_tail"),
-            ParameterSpec(name="lambda_vertical_tail", value_type="number", display_name="Удлинение верт. оперения",
-                          description="", required=False, default=1.5, min_value=0, group="vertical_tail"),
-            ParameterSpec(name="eta_vertical_tail", value_type="number", display_name="Сужение верт. оперения",
-                          description="", required=False, default=2.0, min_value=0, group="vertical_tail"),
-            ParameterSpec(name="sweep_vertical_tail_quarter", value_type="number",
-                          display_name="Стреловидность верт. оперения (1/4 хорды)", description="", unit="град",
-                          required=False, default=35.0, group="vertical_tail"),
-            ParameterSpec(name="k_fuselage", value_type="number", display_name="Коэффициент длины фюзеляжа",
-                          description="", required=False, default=1.2, min_value=0, group="fuselage"),
-            ParameterSpec(name="lambda_fuselage", value_type="number", display_name="Удлинение фюзеляжа",
-                          description="", required=False, default=9.0, min_value=0, group="fuselage"),
-        ),
-    )
+    def calculate(self, project: 'ProjectState') -> None:
+        geom = project.geometry
+        mass = project.mass
+        prelim = project.preliminary
 
-    default_values: dict[str, Any] = {
-        # Wing
-        "eta_wing": 2.5,
-        "sweep_wing_quarter": 25.0,
-        "wing_scheme": "low",
+        S_wing = mass.S_W
+        if S_wing is None or S_wing <= 0:
+            raise InputValidationError(
+                "Для расчета геометрии площадь крыла (S_W) должна быть больше нуля. Блок mass_estimation отработал некорректно.")
 
-        # Horizontal tail
-        "k_horizontal_tail": 0.25,
-        "lambda_horizontal_tail": 4.0,
-        "eta_horizontal_tail": 3.0,
-        "sweep_horizontal_tail_quarter": 30.0,
+        lambda_wing = prelim.Lambda
+        if lambda_wing is None or lambda_wing <= 0:
+            raise InputValidationError("Для расчета геометрии удлинение крыла (Lambda) должно быть больше нуля.")
 
-        # Vertical tail
-        "k_vertical_tail": 0.15,
-        "lambda_vertical_tail": 1.5,
-        "eta_vertical_tail": 2.0,
-        "sweep_vertical_tail_quarter": 35.0,
-
-        # Fuselage
-        "k_fuselage": 1.2,
-        "lambda_fuselage": 9.0,
-    }
-
-    positive_fields: tuple[str, ...] = (
-        "eta_wing",
-        "k_horizontal_tail",
-        "lambda_horizontal_tail",
-        "eta_horizontal_tail",
-        "k_vertical_tail",
-        "lambda_vertical_tail",
-        "eta_vertical_tail",
-        "k_fuselage",
-        "lambda_fuselage",
-    )
-
-    allowed_wing_schemes: tuple[str, ...] = ("low", "mid", "high")
-
-    def validate(self, state: CalculationState) -> None:
-        super().validate(state)
-
-        if "mass_estimation" not in state.data or "S_W" not in state.data["mass_estimation"]:
-            raise InputValidationError("Блок геометрии требует выполнения блока mass_estimation (отсутствует S_W).")
-
-        S_wing = state.data["mass_estimation"]["S_W"]
-        if not isinstance(S_wing, (int, float)) or S_wing <= 0:
-            raise InputValidationError(f"mass_estimation.S_W должно быть положительным числом. Получено: {S_wing}")
-
-        prelim_data = state.project_input.preliminary_sizing
-        # Извлекаем Lambda из Pydantic-модели или словаря
-        lambda_wing = getattr(prelim_data, "Lambda", None)
-        if lambda_wing is None and isinstance(prelim_data, dict):
-            lambda_wing = prelim_data.get("Lambda")
-
-        if lambda_wing is None or float(lambda_wing) <= 0:
-            raise InputValidationError("preliminary_sizing.Lambda должно быть положительным числом.")
-
-        geom_data = state.project_input.geometry
-        raw_data = geom_data if isinstance(geom_data, dict) else geom_data.model_dump()
-        try:
-            GeometryInput.model_validate(raw_data)
-        except Exception as e:
-            raise InputValidationError(f"Ошибка валидации геометрии: {e}")
-
-    def calculate(self, state: CalculationState) -> dict[str, Any]:
-        geom_data = state.project_input.geometry
-        raw_data = geom_data if isinstance(geom_data, dict) else geom_data.model_dump()
-        inputs = GeometryInput.model_validate(raw_data)
-
-        S_wing = float(state.data["mass_estimation"]["S_W"])
-        prelim_data = state.project_input.preliminary_sizing
-
-        # Безопасное извлечение значения в зависимости от того, словарь это или BaseModel
-        if isinstance(prelim_data, dict):
-            lambda_wing = float(prelim_data.get("Lambda", 0))
-        else:
-            lambda_wing = float(getattr(prelim_data, "Lambda", 0))
-
-        # === Wing ===
+        # === Крыло (Wing) ===
         l_wing = math.sqrt(S_wing * lambda_wing)
-        self._add_trace(state, value_name="wing_span", formula=r"l_{wing} = \sqrt{S_{wing} \cdot \lambda_{wing}}",
-                        values={"S_wing": S_wing, "lambda_wing": lambda_wing}, result=float(l_wing), unit="m",
-                        description="Размах крыла.")
+        project.add_trace(
+            value_name="wing_span",
+            formula=r"l_{wing} = \sqrt{S_{wing} \cdot \lambda_{wing}}",
+            values={"S_wing": S_wing, "lambda_wing": lambda_wing},
+            result=float(l_wing), unit="m", description="Размах крыла."
+        )
 
-        b0_wing = (2.0 * S_wing) / (l_wing * (1.0 + 1.0 / inputs.eta_wing))
-        bk_wing = b0_wing / inputs.eta_wing
-        self._add_trace(state, value_name="wing_root_chord",
-                        formula=r"b_{0,wing} = \frac{2S_{wing}}{l_{wing}\left(1 + \frac{1}{\eta_{wing}}\right)}",
-                        values={"S_wing": S_wing, "l_wing": l_wing, "eta_wing": inputs.eta_wing}, result=float(b0_wing),
-                        unit="m", description="Корневая хорда крыла.")
-        self._add_trace(state, value_name="wing_tip_chord", formula=r"b_{k,wing} = \frac{b_{0,wing}}{\eta_{wing}}",
-                        values={"b0_wing": b0_wing, "eta_wing": inputs.eta_wing}, result=float(bk_wing), unit="m",
-                        description="Концевая хорда крыла.")
+        b0_wing = (2.0 * S_wing) / (l_wing * (1.0 + 1.0 / geom.eta_wing))
+        bk_wing = b0_wing / geom.eta_wing
+        project.add_trace(
+            value_name="wing_root_chord",
+            formula=r"b_{0,wing} = \frac{2S_{wing}}{l_{wing}\left(1 + \frac{1}{\eta_{wing}}\right)}",
+            values={"S_wing": S_wing, "l_wing": l_wing, "eta_wing": geom.eta_wing},
+            result=float(b0_wing), unit="m", description="Корневая хорда крыла."
+        )
+        project.add_trace(
+            value_name="wing_tip_chord",
+            formula=r"b_{k,wing} = \frac{b_{0,wing}}{\eta_{wing}}",
+            values={"b0_wing": b0_wing, "eta_wing": geom.eta_wing},
+            result=float(bk_wing), unit="m", description="Концевая хорда крыла."
+        )
 
-        sweep_wing_LE = self._calculate_le_sweep_angle(sweep_quarter_deg=inputs.sweep_wing_quarter, root_chord=b0_wing,
-                                                       tip_chord=bk_wing, span=l_wing)
-        self._add_trace(state, value_name="wing_le_sweep",
-                        formula=r"\chi_{LE} = \arctan\left(\tan(\chi_{1/4}) + \frac{b_0 - b_k}{2l}\right)",
-                        values={"sweep_wing_quarter": inputs.sweep_wing_quarter, "b0_wing": b0_wing, "bk_wing": bk_wing,
-                                "l_wing": l_wing}, result=float(sweep_wing_LE), unit="deg",
-                        description="Стреловидность крыла по передней кромке.")
+        sweep_wing_LE = self._calc_le_sweep(geom.sweep_wing_quarter, b0_wing, bk_wing, l_wing)
+        project.add_trace(
+            value_name="wing_le_sweep",
+            formula=r"\chi_{LE} = \arctan\left(\tan(\chi_{1/4}) + \frac{b_0 - b_k}{2l}\right)",
+            values={"sweep_wing_quarter": geom.sweep_wing_quarter, "b0_wing": b0_wing, "bk_wing": bk_wing,
+                    "l_wing": l_wing},
+            result=float(sweep_wing_LE), unit="deg", description="Стреловидность крыла по передней кромке."
+        )
 
-        # === Fuselage ===
-        L_fuselage = inputs.k_fuselage * l_wing
-        d_fuselage = L_fuselage / inputs.lambda_fuselage
+        # === Фюзеляж (Fuselage) ===
+        L_fuselage = geom.k_fuselage * l_wing
+        d_fuselage = L_fuselage / geom.lambda_fuselage
         r_fuselage = d_fuselage / 2.0
-        self._add_trace(state, value_name="fuselage_length", formula=r"L_f = k_f \cdot l_{wing}",
-                        values={"k_fuselage": inputs.k_fuselage, "l_wing": l_wing}, result=float(L_fuselage), unit="m",
-                        description="Длина фюзеляжа.")
-        self._add_trace(state, value_name="fuselage_diameter", formula=r"d_f = \frac{L_f}{\lambda_f}",
-                        values={"L_fuselage": L_fuselage, "lambda_fuselage": inputs.lambda_fuselage},
-                        result=float(d_fuselage), unit="m", description="Диаметр фюзеляжа.")
-        self._add_trace(state, value_name="fuselage_radius", formula=r"r_f = \frac{d_f}{2}",
-                        values={"d_fuselage": d_fuselage}, result=float(r_fuselage), unit="m",
-                        description="Радиус фюзеляжа.")
 
-        if inputs.wing_scheme == "high":
-            y_wing = d_fuselage / 2.0
-            wing_scheme_ru = "высокоплан"
-        elif inputs.wing_scheme == "mid":
-            y_wing = 0.0
-            wing_scheme_ru = "среднеплан"
+        project.add_trace(value_name="fuselage_length", formula=r"L_f = k_f \cdot l_{wing}",
+                          values={"k_fuselage": geom.k_fuselage, "l_wing": l_wing}, result=float(L_fuselage), unit="m")
+        project.add_trace(value_name="fuselage_diameter", formula=r"d_f = \frac{L_f}{\lambda_f}",
+                          values={"L_fuselage": L_fuselage, "lambda_fuselage": geom.lambda_fuselage},
+                          result=float(d_fuselage), unit="m")
+
+        if geom.wing_scheme == "high":
+            y_wing, wing_scheme_ru = d_fuselage / 2.0, "высокоплан"
+        elif geom.wing_scheme == "mid":
+            y_wing, wing_scheme_ru = 0.0, "среднеплан"
         else:
-            y_wing = -d_fuselage / 2.0
-            wing_scheme_ru = "низкоплан"
+            y_wing, wing_scheme_ru = -d_fuselage / 2.0, "низкоплан"
 
-        self._add_trace(state, value_name="wing_vertical_position",
-                        formula=r"y_{wing} = \begin{cases}\frac{d_f}{2}, & \text{high wing} \\ 0, & \text{mid wing} \\ -\frac{d_f}{2}, & \text{low wing}\end{cases}",
-                        values={"wing_scheme": inputs.wing_scheme, "d_fuselage": d_fuselage}, result=float(y_wing),
-                        unit="m", description="Вертикальное положение крыла относительно фюзеляжа.")
+        project.add_trace(
+            value_name="wing_vertical_position",
+            formula=r"y_{wing} = \begin{cases}\frac{d_f}{2}, & \text{high} \\ 0, & \text{mid} \\ -\frac{d_f}{2}, & \text{low}\end{cases}",
+            values={"wing_scheme": geom.wing_scheme, "d_fuselage": d_fuselage},
+            result=float(y_wing), unit="m"
+        )
 
         x_fuselage = -7.0
 
-        # === Horizontal tail ===
-        S_ht = inputs.k_horizontal_tail * S_wing
-        l_ht = math.sqrt(S_ht * inputs.lambda_horizontal_tail)
-        b0_ht = (2.0 * S_ht) / (l_ht * (1.0 + 1.0 / inputs.eta_horizontal_tail))
-        bk_ht = b0_ht / inputs.eta_horizontal_tail
+        # === Горизонтальное оперение (Horizontal Tail) ===
+        S_ht = geom.k_horizontal_tail * S_wing
+        l_ht = math.sqrt(S_ht * geom.lambda_horizontal_tail)
+        b0_ht = (2.0 * S_ht) / (l_ht * (1.0 + 1.0 / geom.eta_horizontal_tail))
+        bk_ht = b0_ht / geom.eta_horizontal_tail
 
-        self._add_trace(state, value_name="horizontal_tail_area", formula=r"S_{ht} = k_{ht} \cdot S_{wing}",
-                        values={"k_horizontal_tail": inputs.k_horizontal_tail, "S_wing": S_wing}, result=float(S_ht),
-                        unit="m²", description="Площадь горизонтального оперения.")
-        self._add_trace(state, value_name="horizontal_tail_span", formula=r"l_{ht} = \sqrt{S_{ht} \cdot \lambda_{ht}}",
-                        values={"S_ht": S_ht, "lambda_horizontal_tail": inputs.lambda_horizontal_tail},
-                        result=float(l_ht), unit="m", description="Размах горизонтального оперения.")
-        self._add_trace(state, value_name="horizontal_tail_root_chord",
-                        formula=r"b_{0,ht} = \frac{2S_{ht}}{l_{ht}\left(1 + \frac{1}{\eta_{ht}}\right)}",
-                        values={"S_ht": S_ht, "l_ht": l_ht, "eta_horizontal_tail": inputs.eta_horizontal_tail},
-                        result=float(b0_ht), unit="m", description="Корневая хорда горизонтального оперения.")
-        self._add_trace(state, value_name="horizontal_tail_tip_chord", formula=r"b_{k,ht} = \frac{b_{0,ht}}{\eta_{ht}}",
-                        values={"b0_ht": b0_ht, "eta_horizontal_tail": inputs.eta_horizontal_tail}, result=float(bk_ht),
-                        unit="m", description="Концевая хорда горизонтального оперения.")
+        project.add_trace(value_name="horizontal_tail_area", formula=r"S_{ht} = k_{ht} \cdot S_{wing}",
+                          values={"k_horizontal_tail": geom.k_horizontal_tail, "S_wing": S_wing}, result=float(S_ht),
+                          unit="m²")
+        project.add_trace(value_name="horizontal_tail_span", formula=r"l_{ht} = \sqrt{S_{ht} \cdot \lambda_{ht}}",
+                          values={"S_ht": S_ht, "lambda_horizontal_tail": geom.lambda_horizontal_tail},
+                          result=float(l_ht), unit="m")
 
-        sweep_ht_LE = self._calculate_le_sweep_angle(sweep_quarter_deg=inputs.sweep_horizontal_tail_quarter,
-                                                     root_chord=b0_ht, tip_chord=bk_ht, span=l_ht)
-        self._add_trace(state, value_name="horizontal_tail_le_sweep",
-                        formula=r"\chi_{LE,ht} = \arctan\left(\tan(\chi_{1/4,ht}) + \frac{b_{0,ht} - b_{k,ht}}{2l_{ht}}\right)",
-                        values={"sweep_horizontal_tail_quarter": inputs.sweep_horizontal_tail_quarter, "b0_ht": b0_ht,
-                                "bk_ht": bk_ht, "l_ht": l_ht}, result=float(sweep_ht_LE), unit="deg",
-                        description="Стреловидность горизонтального оперения по передней кромке.")
+        sweep_ht_LE = self._calc_le_sweep(geom.sweep_horizontal_tail_quarter, b0_ht, bk_ht, l_ht)
 
         x_ht = x_fuselage + 0.75 * L_fuselage
         y_ht = 0.0
-        self._add_trace(state, value_name="horizontal_tail_x_position", formula=r"x_{ht} = x_f + 0.75L_f",
-                        values={"x_fuselage": x_fuselage, "L_fuselage": L_fuselage}, result=float(x_ht), unit="m",
-                        description="Продольное положение горизонтального оперения.")
 
-        # === Vertical tail ===
-        S_vt = inputs.k_vertical_tail * S_wing
-        l_vt = math.sqrt(S_vt * inputs.lambda_vertical_tail)
-        b0_vt = (2.0 * S_vt) / (l_vt * (1.0 + 1.0 / inputs.eta_vertical_tail))
-        bk_vt = b0_vt / inputs.eta_vertical_tail
+        # === Вертикальное оперение (Vertical Tail) ===
+        S_vt = geom.k_vertical_tail * S_wing
+        l_vt = math.sqrt(S_vt * geom.lambda_vertical_tail)
+        b0_vt = (2.0 * S_vt) / (l_vt * (1.0 + 1.0 / geom.eta_vertical_tail))
+        bk_vt = b0_vt / geom.eta_vertical_tail
 
-        self._add_trace(state, value_name="vertical_tail_area", formula=r"S_{vt} = k_{vt} \cdot S_{wing}",
-                        values={"k_vertical_tail": inputs.k_vertical_tail, "S_wing": S_wing}, result=float(S_vt),
-                        unit="m²", description="Площадь вертикального оперения.")
-        self._add_trace(state, value_name="vertical_tail_span", formula=r"l_{vt} = \sqrt{S_{vt} \cdot \lambda_{vt}}",
-                        values={"S_vt": S_vt, "lambda_vertical_tail": inputs.lambda_vertical_tail}, result=float(l_vt),
-                        unit="m", description="Размах/высота вертикального оперения.")
-        self._add_trace(state, value_name="vertical_tail_root_chord",
-                        formula=r"b_{0,vt} = \frac{2S_{vt}}{l_{vt}\left(1 + \frac{1}{\eta_{vt}}\right)}",
-                        values={"S_vt": S_vt, "l_vt": l_vt, "eta_vertical_tail": inputs.eta_vertical_tail},
-                        result=float(b0_vt), unit="m", description="Корневая хорда вертикального оперения.")
-        self._add_trace(state, value_name="vertical_tail_tip_chord", formula=r"b_{k,vt} = \frac{b_{0,vt}}{\eta_{vt}}",
-                        values={"b0_vt": b0_vt, "eta_vertical_tail": inputs.eta_vertical_tail}, result=float(bk_vt),
-                        unit="m", description="Концевая хорда вертикального оперения.")
+        project.add_trace(value_name="vertical_tail_area", formula=r"S_{vt} = k_{vt} \cdot S_{wing}",
+                          values={"k_vertical_tail": geom.k_vertical_tail, "S_wing": S_wing}, result=float(S_vt),
+                          unit="m²")
+        project.add_trace(value_name="vertical_tail_span", formula=r"l_{vt} = \sqrt{S_{vt} \cdot \lambda_{vt}}",
+                          values={"S_vt": S_vt, "lambda_vertical_tail": geom.lambda_vertical_tail}, result=float(l_vt),
+                          unit="m")
 
-        sweep_vt_LE = self._calculate_le_sweep_angle(sweep_quarter_deg=inputs.sweep_vertical_tail_quarter,
-                                                     root_chord=b0_vt, tip_chord=bk_vt, span=l_vt)
-        self._add_trace(state, value_name="vertical_tail_le_sweep",
-                        formula=r"\chi_{LE,vt} = \arctan\left(\tan(\chi_{1/4,vt}) + \frac{b_{0,vt} - b_{k,vt}}{2l_{vt}}\right)",
-                        values={"sweep_vertical_tail_quarter": inputs.sweep_vertical_tail_quarter, "b0_vt": b0_vt,
-                                "bk_vt": bk_vt, "l_vt": l_vt}, result=float(sweep_vt_LE), unit="deg",
-                        description="Стреловидность вертикального оперения по передней кромке.")
+        sweep_vt_LE = self._calc_le_sweep(geom.sweep_vertical_tail_quarter, b0_vt, bk_vt, l_vt)
 
         x_vt = x_fuselage + 0.75 * L_fuselage
-        self._add_trace(state, value_name="vertical_tail_x_position", formula=r"x_{vt} = x_f + 0.75L_f",
-                        values={"x_fuselage": x_fuselage, "L_fuselage": L_fuselage}, result=float(x_vt), unit="m",
-                        description="Продольное положение вертикального оперения.")
 
-        return {
-            "wing": {"S_wing": float(S_wing), "lambda_wing": float(lambda_wing), "eta_wing": float(inputs.eta_wing),
-                     "l_wing": float(l_wing), "b0_wing": float(b0_wing), "bk_wing": float(bk_wing),
-                     "sweep_wing_quarter": float(inputs.sweep_wing_quarter), "sweep_wing_LE": float(sweep_wing_LE),
-                     "wing_scheme": inputs.wing_scheme, "wing_scheme_ru": wing_scheme_ru, "y_wing": float(y_wing)},
-            "fuselage": {"L_fuselage": float(L_fuselage), "d_fuselage": float(d_fuselage),
-                         "r_fuselage": float(r_fuselage), "x_fuselage": float(x_fuselage),
-                         "k_fuselage": float(inputs.k_fuselage), "lambda_fuselage": float(inputs.lambda_fuselage)},
-            "horizontal_tail": {"S_ht": float(S_ht), "lambda_horizontal_tail": float(inputs.lambda_horizontal_tail),
-                                "eta_horizontal_tail": float(inputs.eta_horizontal_tail), "l_ht": float(l_ht),
-                                "b0_ht": float(b0_ht), "bk_ht": float(bk_ht),
-                                "sweep_horizontal_tail_quarter": float(inputs.sweep_horizontal_tail_quarter),
-                                "sweep_ht_LE": float(sweep_ht_LE), "x_ht": float(x_ht), "y_ht": float(y_ht)},
-            "vertical_tail": {"S_vt": float(S_vt), "lambda_vertical_tail": float(inputs.lambda_vertical_tail),
-                              "eta_vertical_tail": float(inputs.eta_vertical_tail), "l_vt": float(l_vt),
-                              "b0_vt": float(b0_vt), "bk_vt": float(bk_vt),
-                              "sweep_vertical_tail_quarter": float(inputs.sweep_vertical_tail_quarter),
-                              "sweep_vt_LE": float(sweep_vt_LE), "x_vt": float(x_vt)},
-            "inputs_from_mass_estimation": {"S_W": float(S_wing)},
-            "inputs_from_preliminary_sizing": {"Lambda": float(lambda_wing)},
-        }
+        # === Запись результатов обратно в проект ===
+        geom.l_wing = float(l_wing)
+        geom.b0_wing = float(b0_wing)
+        geom.bk_wing = float(bk_wing)
+        geom.sweep_wing_LE = float(sweep_wing_LE)
+        geom.wing_scheme_ru = wing_scheme_ru
+        geom.y_wing = float(y_wing)
 
+        geom.L_fuselage = float(L_fuselage)
+        geom.d_fuselage = float(d_fuselage)
+        geom.r_fuselage = float(r_fuselage)
+        geom.x_fuselage = float(x_fuselage)
 
-    def _add_trace(
-        self,
-        state: CalculationState,
-        *,
-        value_name: str,
-        formula: str,
-        values: dict[str, Any],
-        result: Any,
-        unit: str | None = None,
-        description: str | None = None,
-    ) -> None:
-        state.add_trace(
-            block_name=self.name,
-            value_name=value_name,
-            formula=formula,
-            values=values,
-            result=result,
-            unit=unit,
-            description=description,
-        )
+        geom.S_ht = float(S_ht)
+        geom.l_ht = float(l_ht)
+        geom.b0_ht = float(b0_ht)
+        geom.bk_ht = float(bk_ht)
+        geom.sweep_ht_LE = float(sweep_ht_LE)
+        geom.x_ht = float(x_ht)
+        geom.y_ht = float(y_ht)
 
-
-    def _build_values(self, geometry_input: dict[str, Any]) -> dict[str, Any]:
-        values = dict(self.default_values)
-
-        for key in values:
-            if key in geometry_input and geometry_input[key] is not None:
-                values[key] = geometry_input[key]
-
-        return values
+        geom.S_vt = float(S_vt)
+        geom.l_vt = float(l_vt)
+        geom.b0_vt = float(b0_vt)
+        geom.bk_vt = float(bk_vt)
+        geom.sweep_vt_LE = float(sweep_vt_LE)
+        geom.x_vt = float(x_vt)
 
     @staticmethod
-    def _calculate_le_sweep_angle(
-        sweep_quarter_deg: float,
-        root_chord: float,
-        tip_chord: float,
-        span: float,
-    ) -> float:
+    def _calc_le_sweep(sweep_quarter_deg: float, root_chord: float, tip_chord: float, span: float) -> float:
+        """Переводит стреловидность по 1/4 хорды в стреловидность по передней кромке."""
         sweep_quarter_rad = math.radians(sweep_quarter_deg)
-
         sweep_le_rad = math.atan(
-            math.tan(sweep_quarter_rad)
-            + (root_chord - tip_chord) / (2.0 * span)
+            math.tan(sweep_quarter_rad) + (root_chord - tip_chord) / (2.0 * span)
         )
-
         return math.degrees(sweep_le_rad)
-
-    @staticmethod
-    def _get_number(section: dict[str, Any], field_name: str) -> float:
-        value = section[field_name]
-
-        if isinstance(value, bool):
-            raise InputValidationError(
-                f"{field_name} must be a number, not bool."
-            )
-
-        try:
-            return float(value)
-        except (TypeError, ValueError) as exc:
-            raise InputValidationError(
-                f"{field_name} must be a number. Got: {value!r}"
-            ) from exc

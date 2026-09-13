@@ -8,9 +8,8 @@ from aircraft_design.core.blocks import (
     TechnologyBlock,
     FeasibilityBlock,
 )
-from aircraft_design.core.models import BlockInputSchema
 
-
+# Очередь выполнения. Порядок критически важен!
 DEFAULT_BLOCK_CLASSES: tuple[type[BaseBlock], ...] = (
     FeasibilityBlock,
     PreliminarySizingBlock,
@@ -22,23 +21,6 @@ DEFAULT_BLOCK_CLASSES: tuple[type[BaseBlock], ...] = (
 
 def create_default_blocks() -> list[BaseBlock]:
     """
-    Create calculation blocks for the default full calculation pipeline.
-
-    The order is important:
-
-    1. preliminary_sizing
-    2. mass_estimation
-    3. geometry
+    Создает инстансы расчетных блоков для стандартного конвейера.
     """
     return [block_class() for block_class in DEFAULT_BLOCK_CLASSES]
-
-
-def get_default_input_schemas() -> list[BlockInputSchema]:
-    schemas: list[BlockInputSchema] = []
-
-    for block in create_default_blocks():
-        schema = block.get_input_schema()
-        if schema is not None:
-            schemas.append(schema)
-
-    return schemas

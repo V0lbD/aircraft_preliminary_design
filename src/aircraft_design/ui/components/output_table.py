@@ -17,13 +17,14 @@ class OutputTableWidget(QWidget):
         super().__init__(parent)
 
         self._table = QTableWidget(self)
-        self._table.setColumnCount(4)
+        self._table.setColumnCount(5)
         self._table.setHorizontalHeaderLabels(
             [
                 "Раздел",
                 "Параметр",
                 "Значение",
                 "Ед.",
+                "Описание",
             ]
         )
 
@@ -31,10 +32,10 @@ class OutputTableWidget(QWidget):
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         header.setStretchLastSection(True)
 
-        self._table.setColumnWidth(0, 210)  # раздел
-        self._table.setColumnWidth(1, 260)  # параметр
-        self._table.setColumnWidth(2, 140)  # значение
-        self._table.setColumnWidth(3, 80)  # ед.
+        self._table.setColumnWidth(0, 180)  # раздел
+        self._table.setColumnWidth(1, 230)  # параметр
+        self._table.setColumnWidth(2, 120)  # значение
+        self._table.setColumnWidth(3, 60)  # ед.
 
         self._table.verticalHeader().setVisible(False)
         self._table.setAlternatingRowColors(True)
@@ -51,6 +52,7 @@ class OutputTableWidget(QWidget):
             self._set_item(row_index, 1, row.display_name)
             self._set_item(row_index, 2, self._format_value(row.value))
             self._set_item(row_index, 3, row.unit or "")
+            self._set_item(row_index, 4, row.description)
 
     def clear(self) -> None:
         self._table.setRowCount(0)
@@ -65,8 +67,9 @@ class OutputTableWidget(QWidget):
         if value is None:
             return "-"
 
-        if isinstance(value, bool):
-            return "Да" if value else "Нет"
+        val_str = str(value).lower()
+        if isinstance(value, bool) or val_str in ("true", "false"):
+            return "Да" if val_str == "true" else "Нет"
 
         if isinstance(value, int):
             return str(value)

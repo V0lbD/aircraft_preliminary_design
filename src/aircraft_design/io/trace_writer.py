@@ -1,191 +1,72 @@
-from __future__ import annotations
-
 import json
-from dataclasses import asdict
 from pathlib import Path
-from typing import Any
 
-from aircraft_design.core.models import CalculationTraceRecord, ProjectResult
+from aircraft_design.core.models.project import ProjectState
 
 
-def write_trace_markdown(result: ProjectResult, path: str | Path) -> None:
-    """
-    Write calculation trace as human-readable Markdown file.
-    """
+def write_trace_json(project: ProjectState, path: str | Path, *, indent: int = 2) -> None:
+    """Записывает ход вычислений в виде машиночитаемого JSON-файла."""
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    output_path.write_text(
-        format_trace_markdown(result),
-        encoding="utf-8",
-    )
-
-
-def write_trace_json(
-    result: ProjectResult,
-    path: str | Path,
-    *,
-    indent: int = 2,
-) -> None:
-    """
-    Write calculation trace as machine-readable JSON file.
-    """
-    output_path = Path(path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    output_path.write_text(
-        format_trace_json(result, indent=indent),
-        encoding="utf-8",
-    )
-
-
-def format_trace_json(
-    result: ProjectResult,
-    *,
-    indent: int = 2,
-) -> str:
     data = {
-        "trace_format": "aircraft_preliminary_design.trace.v1",
-        "schema_version": result.schema_version,
-        "success": result.success,
-        "records_count": len(result.trace),
-        "records": [
-            trace_record_to_dict(record)
-            for record in result.trace
-        ],
+        "schema_version": project.schema_version,
+        "success": len(project.errors) == 0,
+        "records_count": len(project.trace_records),
+        "records": project.trace_records,
     }
 
-    return json.dumps(
-        data,
-        ensure_ascii=False,
-        indent=indent,
-    ) + "\n"
+    output_path.write_text(json.dumps(data, ensure_ascii=False, indent=indent), encoding="utf-8")
 
 
-def format_trace_markdown(result: ProjectResult) -> str:
-    lines: list[str] = []
+def write_trace_markdown(project: ProjectState, path: str | Path) -> None:
+    """Записывает ход вычислений в виде удобного для чтения файла Markdown."""
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    lines.extend(
-        [
-            "# Aircraft preliminary design calculation trace",
-            "",
-            f"- Schema version: `{result.schema_version}`",
-            f"- Calculation success: `{result.success}`",
-            f"- Trace records: `{len(result.trace)}`",
-            "",
-        ]
-    )
-
-    if not result.trace:
-        lines.extend(
-            [
-                "No trace records were collected.",
-                "",
-            ]
-        )
-        return "\n".join(lines)
-
-    grouped_records = _group_records_by_block(result.trace)
-
-    for block_name, records in grouped_records.items():
-        lines.extend(
-            [
-                f"## {block_name}",
-                "",
-            ]
-        )
-
-        for index, record in enumerate(records, start=1):
-            lines.extend(_format_trace_record_markdown(index, record))
-
-    return "\n".join(lines).rstrip() + "\n"
-
-
-def trace_record_to_dict(record: CalculationTraceRecord) -> dict[str, Any]:
-    return record.model_dump()
-
-
-def _group_records_by_block(
-    records: list[CalculationTraceRecord],
-) -> dict[str, list[CalculationTraceRecord]]:
-    grouped: dict[str, list[CalculationTraceRecord]] = {}
-
-    for record in records:
-        grouped.setdefault(record.block_name, []).append(record)
-
-    return grouped
-
-
-def _format_trace_record_markdown(
-    index: int,
-    record: CalculationTraceRecord,
-) -> list[str]:
+    success_text = "True" if len(project.errors) == 0 else "False"
     lines = [
-        f"### {index}. {record.value_name}",
-        "",
+        "# Aircraft preliminary design calculation trace\n",
+        f"- Schema version: `{project.schema_version}`",
+        f"- Calculation success: `{success_text}`",
+        f"- Trace records: `{len(project.trace_records)}`\n",
     ]
 
-    if record.description:
-        lines.extend(
-            [
-                record.description,
-                "",
-            ]
-        )
+    if not project.trace_records:
+        lines.append("No trace records were collected.\n")
+        output_path.write_text("\n".join(lines), encoding="utf-8")
+        return
 
-    lines.extend(
-        [
-            "**Formula:**",
-            "",
-            "$$",
-            record.formula,
-            "$$",
-            "",
-        ]
-    )
+    # Группируем логи по имени блока
+    grouped = {}
+    for record in project.trace_records:
+        block = record.get("block", "unknown")
+        grouped.setdefault(block, []).append(record)
 
-    if record.values:
-        lines.extend(
-            [
-                "**Values:**",
-                "",
-            ]
-        )
+    for block_name, records in grouped.items():
+        lines.append(f"## {block_name}\n")
 
-        for key, value in record.values.items():
-            lines.append(f"- `{key}` = `{_format_value(value)}`")
+        for i, r in enumerate(records, 1):
+            val_name = r.get('value_name', '')
+            lines.append(f"### {i}. {val_name}\n")
 
-        lines.append("")
+            if desc := r.get('description'):
+                lines.append(f"{desc}\n")
 
-    lines.extend(
-        [
-            "**Result:**",
-            "",
-            f"`{record.value_name}` = `{_format_value(record.result)}`"
-            + (f" `{record.unit}`" if record.unit else ""),
-            "",
-            "---",
-            "",
-        ]
-    )
+            lines.append("**Formula:**\n")
+            lines.append(f"$$\n{r.get('formula', '')}\n$$\n")
 
-    return lines
+            if values := r.get('values'):
+                lines.append("**Values:**\n")
+                for k, v in values.items():
+                    v_str = f"{v:.6e}" if isinstance(v, float) and (abs(v) >= 1e6 or (0 < abs(v) < 1e-4)) else str(v)
+                    lines.append(f"- `{k}` = `{v_str}`")
+                lines.append("\n")
 
+            result = r.get('result')
+            unit = r.get('unit', '')
+            res_str = f"{result:.6e}" if isinstance(result, float) and (
+                        abs(result) >= 1e6 or (0 < abs(result) < 1e-4)) else str(result)
+            lines.append(f"**Result:**\n\n`{val_name}` = `{res_str}` {unit}\n\n---\n")
 
-def _format_value(value: Any) -> str:
-    if isinstance(value, float):
-        abs_value = abs(value)
-
-        if value != 0 and (abs_value >= 1e6 or abs_value < 1e-4):
-            return f"{value:.6e}"
-
-        return f"{value:.6f}".rstrip("0").rstrip(".")
-
-    if isinstance(value, dict | list | tuple):
-        return json.dumps(
-            value,
-            ensure_ascii=False,
-            default=str,
-        )
-
-    return str(value)
+    output_path.write_text("\n".join(lines), encoding="utf-8")
