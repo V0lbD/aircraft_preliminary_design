@@ -2,23 +2,16 @@ from __future__ import annotations
 
 import logging
 
-from aircraft_design.core.blocks import BaseBlock
-from aircraft_design.core.errors import AircraftDesignError, BlockCalculationError
-from aircraft_design.core.models import (
-    BlockResult,
-    CalculationState,
-    CalculationTrace,
-    CalculationTraceRecord,
-    ProjectInput,
-    ProjectResult,
-)
+from aircraft_design.core.blocks.base import BaseBlock
+from aircraft_design.core.models.project import ProjectState
 
 logger = logging.getLogger(__name__)
 
 
 class Orchestrator:
     """
-    Runs calculation blocks in a fixed order.
+    Управляет последовательным выполнением расчётных блоков.
+    В новой архитектуре работает напрямую с объектом ProjectState.
     """
 
     def __init__(
@@ -29,94 +22,48 @@ class Orchestrator:
         self.blocks = blocks or []
         self.stop_on_error = stop_on_error
 
-    def run(
-        self,
-        project_input: ProjectInput,
-        *,
-        trace_enabled: bool = True,
-    ) -> ProjectResult:
-        logger.info("Calculation started")
-
-        state = CalculationState(
-            project_input=project_input,
-            trace=CalculationTrace(enabled=trace_enabled),
-        )
-        result = ProjectResult(schema_version=project_input.schema_version)
+    def run(self, project: ProjectState) -> bool:
+        logger.info("Начало расчёта проекта")
 
         if not self.blocks:
-            warning = "No calculation blocks configured yet."
-            logger.warning(warning)
-            result.warnings.append(warning)
+            msg = "Нет настроенных блоков для расчёта."
+            project.add_warning(msg)
+            logger.warning(msg)
+            return False
 
+        # Конвейерный прогон через все блоки
         for block in self.blocks:
-            try:
-                block_result = block.run(state)
+            # Напомним: block.run() теперь сам ловит исключения и пишет их в project
+            success = block.run(project)
 
-            except AircraftDesignError as exc:
-                block_result = self._make_failed_block_result(block.name, exc)
-                result.success = False
-                result.errors.append(str(exc))
-
-                result.block_results.append(block_result)
-
+            if not success:
                 if self.stop_on_error:
-                    logger.error("Stopping calculation after block failure: %s", block.name)
+                    logger.error(f"Расчёт остановлен из-за ошибки в блоке: {block.name}")
                     break
 
-                continue
+        # Если в массиве ошибок проекта пусто, значит всё прошло гладко
+        is_success = len(project.errors) == 0
 
-            except Exception as exc:
-                wrapped_error = BlockCalculationError(
-                    f"Unexpected error in block '{block.name}': {exc}"
-                )
-                block_result = self._make_failed_block_result(block.name, wrapped_error)
-                result.success = False
-                result.errors.append(str(wrapped_error))
+        # Оставляем удобный вывод трассировки в дебаг-лог, как в старой версии
+        if logger.isEnabledFor(logging.DEBUG):
+            self._log_trace_records(project.trace_records)
 
-                result.block_results.append(block_result)
-
-                if self.stop_on_error:
-                    logger.exception("Stopping calculation after unexpected block failure")
-                    break
-
-                continue
-
-            result.block_results.append(block_result)
-
-        result.warnings.extend(state.warnings)
-        result.trace = list(state.trace.records)
-
-        if trace_enabled and logger.isEnabledFor(logging.DEBUG):
-            self._log_trace_records(result.trace)
-
-        logger.info("Calculation finished. Success: %s", result.success)
-        return result
+        logger.info(f"Расчёт завершён. Успех: {is_success}")
+        return is_success
 
     @staticmethod
-    def _make_failed_block_result(block_name: str, error: Exception) -> BlockResult:
-        return BlockResult(
-            block_name=block_name,
-            success=False,
-            errors=[str(error)],
-        )
-
-    @staticmethod
-    def _log_trace_records(records: list[CalculationTraceRecord]) -> None:
+    def _log_trace_records(records: list[dict]) -> None:
         if not records:
             logger.debug("Calculation trace is empty")
             return
 
-        logger.debug("Calculation trace records: %s", len(records))
+        logger.debug(f"Calculation trace records: {len(records)}")
 
         for record in records:
-            unit = f" {record.unit}" if record.unit else ""
-
             logger.debug(
-                "TRACE | %s | %s = %s%s | formula: %s | values: %s",
-                record.block_name,
-                record.value_name,
-                record.result,
-                unit,
-                record.formula,
-                record.values,
+                "TRACE | %s | %s = %s | formula: %s",
+                record.get("block"),
+                record.get("value_name"),
+                record.get("result"),
+                record.get("formula"),
             )

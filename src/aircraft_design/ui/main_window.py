@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
 import sys
+import pandas as pd
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -20,66 +20,44 @@ from PySide6.QtWidgets import (
 )
 
 from aircraft_design.app import run_calculation
-from aircraft_design.input_builder import (
-    create_project_input_from_sections,
-)
 from aircraft_design.core.errors import AircraftDesignError
-from aircraft_design.core.models import ProjectInput, ProjectResult
-from aircraft_design.io import (
-    load_project_input,
-    write_project_input,
-    write_project_result,
-    write_txt_result,
-)
+from aircraft_design.core.models.project import ProjectState
+from aircraft_design.io.json_io import load_project_from_json, save_project_to_json
+from aircraft_design.io.txt_writer import write_txt_result
+from aircraft_design.io.tech_db_loader import load_technology_database_into_project
+
 from aircraft_design.ui.adapter import (
     build_existence_chart_view,
     build_input_table_sections,
     build_output_table_rows,
+    update_project_from_ui,
 )
 from aircraft_design.ui.components import (
     ExistenceChartWidget,
     InputTableWidget,
     OutputTableWidget,
 )
-from aircraft_design.io.excel_loader import load_technology_database
+
 logger = logging.getLogger(__name__)
 
 
 def get_resource_path(relative_path: str) -> Path:
-    """
-    Возвращает абсолютный путь к ресурсу.
-    Работает как для обычного запуска из кода, так и для скомпилированного .exe.
-    """
+    """Возвращает абсолютный путь к ресурсу."""
     if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-        # Если запущено как скомпилированный .exe, ищем во временной папке PyInstaller
-        base_path = Path(sys._MEIPASS)
+        # Если запущено как скомпилированный .exe, ищем папку РЯДОМ с .exe
+        base_path = Path(sys.executable).parent
     else:
-        # Если запущено как обычный скрипт, ищем относительно корня проекта (или текущей директории)
+        # Если запущено из IDE
         base_path = Path.cwd()
-
     return base_path / relative_path
 
 
 class MainWindow(QMainWindow):
-    """
-    Main application window for the new UI.
-
-    Core UI principle:
-    - editable input table;
-    - existence/design-space chart;
-    - non-editable output table.
-    """
-
     def __init__(self) -> None:
         super().__init__()
 
-        self._last_result: ProjectResult | None = None
-        self._aircraft: dict[str, Any] = {
-            "aircraft_type": "business_jet",
-        }
-        self._metadata: dict[str, Any] = {
-            "source": "ui",
-        }
+        # Всё состояние приложения живет в одном объекте!
+        self._project = ProjectState()
 
         self.setWindowTitle("Aircraft Preliminary Design")
         self.resize(1400, 900)
@@ -95,11 +73,14 @@ class MainWindow(QMainWindow):
         self._calculate_button = QPushButton("Рассчитать", self)
         self._save_txt_button = QPushButton("Сохранить TXT", self)
         self._save_json_button = QPushButton("Сохранить JSON", self)
+        self._save_dat_button = QPushButton("Экспорт 3D (.dat)", self)
         self._clear_button = QPushButton("Очистить результаты", self)
 
         self._setup_layout()
         self._connect_signals()
-        self._load_default_input_sections()
+
+        # Сразу загружаем дефолтные значения из дескрипторов в UI
+        self._load_project_to_ui()
 
     def _setup_layout(self) -> None:
         central_widget = QWidget(self)
@@ -112,6 +93,7 @@ class MainWindow(QMainWindow):
         toolbar_layout.addStretch(1)
         toolbar_layout.addWidget(self._save_txt_button)
         toolbar_layout.addWidget(self._save_json_button)
+        toolbar_layout.addWidget(self._save_dat_button)
         toolbar_layout.addWidget(self._clear_button)
 
         top_splitter = QSplitter(Qt.Orientation.Horizontal, self)
@@ -130,7 +112,6 @@ class MainWindow(QMainWindow):
 
         root_layout.addLayout(toolbar_layout)
         root_layout.addWidget(main_splitter)
-
         self.setCentralWidget(central_widget)
 
         status_bar = QStatusBar(self)
@@ -143,221 +124,157 @@ class MainWindow(QMainWindow):
         self._calculate_button.clicked.connect(self._on_calculate_clicked)
         self._save_txt_button.clicked.connect(self._on_save_txt_clicked)
         self._save_json_button.clicked.connect(self._on_save_json_clicked)
+        self._save_dat_button.clicked.connect(self._on_save_dat_clicked)
         self._clear_button.clicked.connect(self._on_clear_clicked)
 
-    def _load_default_input_sections(self) -> None:
-        sections = build_input_table_sections()
+    def _load_project_to_ui(self) -> None:
+        """Синхронизирует данные из объекта ProjectState в UI таблицы."""
+        sections = build_input_table_sections(self._project)
         self._input_table.load_sections(sections)
-
-    def _on_load_json_clicked(self) -> None:
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Загрузить входной JSON",
-            "inputs/projects",
-            "JSON files (*.json);;All files (*.*)",
-        )
-
-        if not file_path:
-            return
-
-        try:
-            project_input = load_project_input(file_path)
-            self._load_project_input_to_ui(project_input)
-            self._metadata["source_file"] = str(file_path)
-            self._set_status(f"Загружен файл: {file_path}")
-
-        except Exception as exc:
-            logger.exception("Failed to load JSON input")
-            self._show_error(
-                "Ошибка загрузки JSON",
-                str(exc),
-            )
-
-    def _on_save_input_json_clicked(self) -> None:
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Сохранить входной JSON",
-            "inputs/projects/input_from_ui.json",
-            "JSON files (*.json);;All files (*.*)",
-        )
-
-        if not file_path:
-            return
-
-        try:
-            project_input = self._build_current_project_input()
-
-            write_project_input(project_input, Path(file_path))
-
-            self._metadata["saved_input_file"] = str(file_path)
-            self._set_status(f"Входной JSON сохранён: {file_path}")
-
-        except AircraftDesignError as exc:
-            logger.warning("Cannot save input JSON: %s", exc)
-            self._show_error("Ошибка входных данных", str(exc))
-            self._set_status("Ошибка сохранения входного JSON")
-
-        except Exception as exc:
-            logger.exception("Failed to save input JSON")
-            self._show_error("Ошибка сохранения входного JSON", str(exc))
-            self._set_status("Ошибка сохранения входного JSON")
-
-    def _build_current_project_input(self) -> ProjectInput:
-        section_values = self._input_table.get_section_values()
-
-        ui_metadata = section_values.get("metadata", {})
-        self._metadata.update(ui_metadata)
-
-        project_input = create_project_input_from_sections(
-            feasibility=section_values.get("feasibility", {}),
-            preliminary_sizing=section_values.get("preliminary_sizing", {}),
-            mass_estimation=section_values.get("mass_estimation", {}),
-            geometry=section_values.get("geometry", {}),
-            aircraft=self._aircraft,
-            metadata=self._metadata,
-        )
-
-        # Подгружаем базу данных технологий из папки tables
-        try:
-            db_path = get_resource_path("inputs/tables")
-            project_input.technology_db = load_technology_database(db_path)
-        except Exception as exc:
-            logger.warning("Не удалось загрузить базу технологий: %s", exc)
-            # Мы не прерываем работу интерфейса здесь. Если БД не загрузилась,
-            # блок TechnologyBlock.validate() сам выбросит красивую ошибку при расчёте.
-
-        return project_input
-
-    def _load_project_input_to_ui(self, project_input: ProjectInput) -> None:
-        self._aircraft = dict(project_input.aircraft)
-        self._metadata = dict(project_input.metadata)
-
-        values = {
-            "metadata": project_input.metadata,
-            "feasibility": project_input.feasibility,
-            "preliminary_sizing": project_input.preliminary_sizing,
-            "mass_estimation": project_input.mass_estimation,
-            "geometry": project_input.geometry,
-        }
-
-        sections = build_input_table_sections(values=values)
-        self._input_table.load_sections(sections)
-
-        self._last_result = None
         self._output_table.clear()
         self._chart.clear()
 
+    def _update_project_from_ui(self) -> None:
+        """Забирает данные из редактируемой таблицы и обновляет ProjectState."""
+        ui_data = self._input_table.get_section_values()
+        update_project_from_ui(self._project, ui_data)
+
+    def _on_load_json_clicked(self) -> None:
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Загрузить входной JSON", "inputs/projects", "JSON files (*.json);;All files (*.*)"
+        )
+        if not file_path: return
+
+        try:
+            # Создаем чистый проект и загружаем в него данные
+            self._project = ProjectState()
+            load_project_from_json(self._project, file_path)
+
+            self._load_project_to_ui()
+            self._set_status(f"Загружен файл: {file_path}")
+        except Exception as exc:
+            logger.exception("Failed to load JSON input")
+            self._show_error("Ошибка загрузки JSON", str(exc))
+
+    def _on_save_dat_clicked(self) -> None:
+        if not self._project.trace_records and not self._project.errors:
+            self._show_warning("Нет результатов", "Сначала выполните расчёт.")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Экспорт 3D (.dat)", "outputs/model.dat", "DAT files (*.dat);;All files (*.*)"
+        )
+        if not file_path: return
+
+        try:
+            from aircraft_design.io.dat_writer import write_3d_dat
+            write_3d_dat(self._project, Path(file_path))
+            self._set_status(f"Файл 3D-модели сохранён: {file_path}")
+        except Exception as exc:
+            logger.exception("Failed to export DAT result")
+            self._show_error("Ошибка экспорта", str(exc))
+
+    def _on_save_input_json_clicked(self) -> None:
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Сохранить входной JSON", "inputs/projects/input_from_ui.json", "JSON files (*.json);;All files (*.*)"
+        )
+        if not file_path: return
+
+        try:
+            self._update_project_from_ui()
+            save_project_to_json(self._project, Path(file_path))
+            self._set_status(f"Входной JSON сохранён: {file_path}")
+        except Exception as exc:
+            logger.exception("Failed to save input JSON")
+            self._show_error("Ошибка сохранения входного JSON", str(exc))
+
+    def _load_technology_database(self) -> None:
+        """Загружает таблицы Excel, используя общий загрузчик."""
+        load_technology_database_into_project(self._project)
+
     def _on_calculate_clicked(self) -> None:
         try:
-            project_input = self._build_current_project_input()
+            # 1. Очищаем старые ошибки и логи перед новым расчетом
+            self._project.errors.clear()
+            self._project.warnings.clear()
+            self._project.trace_records.clear()
 
-            result = run_calculation(
-                project_input=project_input,
-                trace_enabled=True,
-            )
+            # 2. Забираем изменения из UI
+            self._update_project_from_ui()
 
-            self._last_result = result
+            # 3. Подгружаем таблицы (Excel) "на лету" перед расчетом
+            self._load_technology_database()
 
-            self._last_result = result
-            self._show_result(result)
+            # 4. Запускаем конвейер
+            success = run_calculation(self._project, stop_on_error=True)
 
-            if result.success:
+            # 5. Выводим результаты на экран
+            self._show_result()
+
+            if success:
                 self._set_status("Расчёт успешно завершён")
             else:
                 self._set_status("Расчёт завершён с ошибками")
-                self._show_warning(
-                    "Расчёт завершён с ошибками",
-                    "\n".join(result.errors) if result.errors else "Неизвестная ошибка",
-                )
+                self._show_warning("Расчёт завершён с ошибками", "\n".join(self._project.errors))
 
         except AircraftDesignError as exc:
-            logger.warning("Calculation validation error: %s", exc)
-            self._show_error("Ошибка входных данных", str(exc))
-            self._set_status("Ошибка входных данных")
-
+            logger.warning("Calculation error: %s", exc)
+            self._show_error("Ошибка расчёта", str(exc))
+            self._set_status("Ошибка расчёта")
         except Exception as exc:
             logger.exception("Unexpected calculation error")
-            self._show_error("Неожиданная ошибка расчёта", str(exc))
-            self._set_status("Ошибка расчёта")
+            self._show_error("Неожиданная ошибка", str(exc))
+            self._set_status("Критическая ошибка")
 
-    def _show_result(self, result: ProjectResult) -> None:
-        output_rows = build_output_table_rows(result)
-        chart_view = build_existence_chart_view(result)
+    def _show_result(self) -> None:
+        output_rows = build_output_table_rows(self._project)
+        chart_view = build_existence_chart_view(self._project)
 
         self._output_table.load_rows(output_rows)
         self._chart.load_chart(chart_view)
 
     def _on_save_txt_clicked(self) -> None:
-        if self._last_result is None:
-            self._show_warning(
-                "Нет результатов",
-                "Сначала выполните расчёт.",
-            )
+        if not self._project.trace_records and not self._project.errors:
+            self._show_warning("Нет результатов", "Сначала выполните расчёт.")
             return
 
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Сохранить результат TXT",
-            "outputs/result.txt",
-            "Text files (*.txt);;All files (*.*)",
-        )
-
-        if not file_path:
-            return
+        file_path, _ = QFileDialog.getSaveFileName(self, "Сохранить TXT", "outputs/result.txt",
+                                                   "Text files (*.txt);;All files (*.*)")
+        if not file_path: return
 
         try:
-            write_txt_result(self._last_result, Path(file_path))
+            write_txt_result(self._project, Path(file_path))
             self._set_status(f"TXT сохранён: {file_path}")
-
         except Exception as exc:
             logger.exception("Failed to save TXT result")
             self._show_error("Ошибка сохранения TXT", str(exc))
 
     def _on_save_json_clicked(self) -> None:
-        if self._last_result is None:
-            self._show_warning(
-                "Нет результатов",
-                "Сначала выполните расчёт.",
-            )
+        if not self._project.trace_records and not self._project.errors:
+            self._show_warning("Нет результатов", "Сначала выполните расчёт.")
             return
 
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Сохранить результат JSON",
-            "outputs/result.json",
-            "JSON files (*.json);;All files (*.*)",
-        )
-
-        if not file_path:
-            return
+        file_path, _ = QFileDialog.getSaveFileName(self, "Сохранить JSON", "outputs/result.json",
+                                                   "JSON files (*.json);;All files (*.*)")
+        if not file_path: return
 
         try:
-            write_project_result(self._last_result, Path(file_path))
+            save_project_to_json(self._project, Path(file_path))
             self._set_status(f"JSON сохранён: {file_path}")
-
         except Exception as exc:
             logger.exception("Failed to save JSON result")
             self._show_error("Ошибка сохранения JSON", str(exc))
 
     def _on_clear_clicked(self) -> None:
-        self._last_result = None
-        self._output_table.clear()
-        self._chart.clear()
+        self._project = ProjectState()  # Сброс состояния до дефолтного
+        self._load_project_to_ui()
         self._set_status("Результаты очищены")
 
     def _set_status(self, text: str) -> None:
         self._status_label.setText(text)
 
     def _show_error(self, title: str, text: str) -> None:
-        QMessageBox.critical(
-            self,
-            title,
-            text,
-        )
+        QMessageBox.critical(self, title, text)
 
     def _show_warning(self, title: str, text: str) -> None:
-        QMessageBox.warning(
-            self,
-            title,
-            text,
-        )
+        QMessageBox.warning(self, title, text)
