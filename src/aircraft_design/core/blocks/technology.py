@@ -3,6 +3,7 @@ from __future__ import annotations
 import itertools
 import logging
 import math
+from typing import Any
 
 from aircraft_design.core.blocks.base import BaseBlock
 from aircraft_design.core.errors import InputValidationError
@@ -24,7 +25,6 @@ class TechnologyBlock(BaseBlock):
         mass = project.mass
 
         # 1. Проверяем наличие базы данных
-        # Предполагаем, что БД технологий загружается при старте проекта и лежит в databases
         if "technology_db" not in project.databases:
             raise InputValidationError(
                 "База данных технологий (Excel) не загружена в проект (project.databases['technology_db']).")
@@ -36,19 +36,15 @@ class TechnologyBlock(BaseBlock):
         if m_mto_initial <= 0:
             raise InputValidationError("Невозможно рассчитать экономику: M0 <= 0. Выполнен ли расчет масс?")
 
-        # Получаем развесовку, которую мы сохранили в словарь в блоке масс
         if "component_masses" not in project.databases:
             raise InputValidationError("Развесовка компонентов (component_masses) не найдена в базе проекта.")
 
         comp_masses = project.databases["component_masses"]
-
         m_fixed = comp_masses.get("payload", 0.0) + comp_masses.get("service_load", 0.0)
 
-        # Старые относительные массы агрегатов
         m_kr_old = comp_masses.get("wing", 0.0) / m_mto_initial
         m_fuse_old = comp_masses.get("fuselage", 0.0) / m_mto_initial
         m_tail_old = comp_masses.get("tail", 0.0) / m_mto_initial
-
         denom_old = m_fixed / m_mto_initial
 
         NLA = tech.NLA
@@ -62,6 +58,21 @@ class TechnologyBlock(BaseBlock):
                 list(itertools.product(comp_techs, repeat=3))
         )
 
+        project.add_trace(
+            value_name="Уравнения технико-экономического перебора",
+            formula=(
+                r"m_{0,new} = \frac{m_{fix}}{\bar{m}_{fix,old} - \Delta\bar{m}_{struct}} \\ "
+                r"n_{стан} = \left\lceil \frac{T_{LA} N_{эл}}{N_{дет}} \right\rceil \\ "
+                r"C_{мат} = C_1 \cdot \frac{m_{эл}}{КИМ} \cdot m_{0,new} \\ "
+                r"C_{труд} = 1.3 \cdot n_{стан} \cdot n_{раб} \cdot C_{н.ч.} \cdot T \\ "
+                r"C_{осн} = n_{стан} \cdot C_{ст1}"
+            ),
+            values={"NLA": NLA, "T": T, "TLA": TLA},
+            result="Запуск перебора технологий",
+            unit="",
+            description="Формулы для расчета стоимости материалов, труда и оснастки на каждой итерации перебора."
+        )
+
         best_cost = float("inf")
         best_details = {}
         best_combo_names = {}
@@ -70,12 +81,10 @@ class TechnologyBlock(BaseBlock):
 
         # 3. Основной цикл перебора
         for wing_combo, fuse_combo, tail_combo in itertools.product(valid_component_combos, repeat=3):
-            # Расчет компонентов с передачей старой относительной массы
             wing_res = self._calc_component('wing', wing_combo, db, TLA, T, m_kr_old)
             fuse_res = self._calc_component('fuselage', fuse_combo, db, TLA, T, m_fuse_old)
             tail_res = self._calc_component('tail', tail_combo, db, TLA, T, m_tail_old)
 
-            # Пересчет новой массы самолета M0
             m_kr_new = wing_res['mel_total']
             m_fuse_new = fuse_res['mel_total']
             m_tail_new = tail_res['mel_total']
@@ -88,11 +97,9 @@ class TechnologyBlock(BaseBlock):
 
             m0_new = m_fixed / denom_new
 
-            # Суммирование материалов
             cmat_total = (wing_res['cmat_factor'] + fuse_res['cmat_factor'] + tail_res['cmat_factor']) * m0_new
             cla_i = NLA * cmat_total
 
-            # Расчет остальной экономики
             ctrud_total = wing_res['ctrud'] + fuse_res['ctrud'] + tail_res['ctrud']
             cosn_total = wing_res['cosn'] + fuse_res['cosn'] + tail_res['cosn']
             spr_total = wing_res['spr'] + fuse_res['spr'] + tail_res['spr']
@@ -128,20 +135,18 @@ class TechnologyBlock(BaseBlock):
 
         # 4. Запись результатов обратно в проект
         tech.best_cost_seb1 = float(best_cost)
-        tech.m0_new = best_details["m0_new"]
-        tech.CSUM_total = best_details["CSUM_total"]
-        tech.CLA_I_materials = best_details["CLA_I_materials"]
-        tech.COSN_machines = best_details["COSN_machines"]
-        tech.CTRUD_labor = best_details["CTRUD_labor"]
-        tech.CSPL_space = best_details["CSPL_space"]
+        tech.m0_new = best_details.get("m0_new", m_mto_initial)
+        tech.CSUM_total = best_details.get("CSUM_total", 0.0)
+        tech.CLA_I_materials = best_details.get("CLA_I_materials", 0.0)
+        tech.COSN_machines = best_details.get("COSN_machines", 0.0)
+        tech.CTRUD_labor = best_details.get("CTRUD_labor", 0.0)
+        tech.CSPL_space = best_details.get("CSPL_space", 0.0)
 
         if best_combo_names:
-            # Вспомогательная функция для разбора строки вида "alum_1" на ("alum", 1)
             def split_tech(t_str):
                 mat, idx = t_str.split("_")
                 return mat, int(idx)
 
-            # Крыло (0 - skin, 1 - longitudinal, 2 - transverse)
             w_skin_m, w_skin_i = split_tech(best_combo_names["wing"][0])
             w_long_m, w_long_i = split_tech(best_combo_names["wing"][1])
             w_trans_m, w_trans_i = split_tech(best_combo_names["wing"][2])
@@ -150,7 +155,6 @@ class TechnologyBlock(BaseBlock):
             tech.wing_long_tech = resolve_technology_name("wing", "longitudinal", w_long_m, w_long_i)
             tech.wing_trans_tech = resolve_technology_name("wing", "transverse", w_trans_m, w_trans_i)
 
-            # Фюзеляж
             f_skin_m, f_skin_i = split_tech(best_combo_names["fuselage"][0])
             f_long_m, f_long_i = split_tech(best_combo_names["fuselage"][1])
             f_trans_m, f_trans_i = split_tech(best_combo_names["fuselage"][2])
@@ -159,7 +163,6 @@ class TechnologyBlock(BaseBlock):
             tech.fuse_long_tech = resolve_technology_name("fuselage", "longitudinal", f_long_m, f_long_i)
             tech.fuse_trans_tech = resolve_technology_name("fuselage", "transverse", f_trans_m, f_trans_i)
 
-            # Оперение
             t_skin_m, t_skin_i = split_tech(best_combo_names["tail"][0])
             t_long_m, t_long_i = split_tech(best_combo_names["tail"][1])
             t_trans_m, t_trans_i = split_tech(best_combo_names["tail"][2])
@@ -168,18 +171,31 @@ class TechnologyBlock(BaseBlock):
             tech.tail_long_tech = resolve_technology_name("tail", "longitudinal", t_long_m, t_long_i)
             tech.tail_trans_tech = resolve_technology_name("tail", "transverse", t_trans_m, t_trans_i)
 
-        # Запись следа
+        project.add_trace(
+            value_name="Уравнение суммарной стоимости партии",
+            formula=r"C_{\Sigma} = (C_{мат} \cdot N_{LA} + C_{осн} + C_{труд} + C_{пл}) \cdot k_{приб}",
+            values={
+                "CLA_I_materials": tech.CLA_I_materials,
+                "COSN_machines": tech.COSN_machines,
+                "CTRUD_labor": tech.CTRUD_labor,
+                "CSPL_space": tech.CSPL_space
+            },
+            result=float(tech.CSUM_total),
+            unit="руб.",
+            description="Формирование суммарной производственной стоимости для оптимальной комбинации технологий."
+        )
+
         project.add_trace(
             value_name="best_cost_seb1",
             formula=r"C_{SEB1} = \frac{C_{\Sigma}}{N_{LA}}",
-            values={"C_sum": best_details.get("CSUM_total"), "NLA": NLA},
+            values={"C_sum": tech.CSUM_total, "NLA": NLA},
             result=float(best_cost),
-            description="Минимальная найденная себестоимость 1 экземпляра."
+            unit="руб.",
+            description="Минимальная расчетная себестоимость 1 экземпляра."
         )
 
-    def _calc_component(self, comp_name: str, combo: tuple, db: TechnologyDatabase, TLA: float, T: float,
+    def _calc_component(self, comp_name: str, combo: tuple, db: Any, TLA: float, T: float,
                         m_old_relative: float) -> dict[str, float]:
-        """Функция расчета экономики одного агрегата без изменений."""
         parts = ['skin', 'longitudinal', 'transverse']
         cmat_factor_sum, ctrud_sum, spr_sum = 0.0, 0.0, 0.0
         workers_sum, cosn_sum, mel_total = 0.0, 0.0, 0.0

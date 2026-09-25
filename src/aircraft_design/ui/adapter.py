@@ -9,9 +9,6 @@ from aircraft_design.core.models.project import ProjectState
 
 # Маппинг внутренних значений на красивые названия для UI
 _CHOICE_DISPLAY_NAMES = {
-    ("geometry", "wing_scheme", "low"): "Низкоплан",
-    ("geometry", "wing_scheme", "mid"): "Среднеплан",
-    ("geometry", "wing_scheme", "high"): "Высокоплан",
     ("feasibility", "powerplant_type", "electric"): "Электрическая",
     ("feasibility", "powerplant_type", "ice"): "ДВС",
     ("feasibility", "powerplant_type", "hybrid"): "Гибридная",

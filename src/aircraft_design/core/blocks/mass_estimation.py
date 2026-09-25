@@ -37,13 +37,13 @@ class MassEstimationBlock(BaseBlock):
             mass.T_TO = 0.0
 
         if p0_opt is not None and p0_opt > 0:
-            mass.S_W = mass.m_MTO / p0_opt
+            mass.S_W = mass.m_MTO * STANDARD_GRAVITY / p0_opt
             project.add_trace(
                 value_name="S_W",
                 formula=r"S_W=\frac{m_0 g}{p_0}",
                 values={"m0": mass.m_MTO, "p0": p0_opt},
                 result=float(mass.S_W),
-                unit="m²",
+                unit="м²",
                 description="Итоговая площадь крыла.",
             )
         else:
@@ -56,14 +56,16 @@ class MassEstimationBlock(BaseBlock):
         numerator = project.feasibility.payload_mass + mass.service_load_mass
 
         fuel_ratio = self._calc_breguet_fuel_ratio(project)
-        chumak_total_ratio = 0.60 if mass.is_maneuverable else 0.61
+
+        chumak_total_ratio = mass.empty_equipped_mass_ratio
 
         project.add_trace(
             value_name="chumak_initial_mass_ratio_sum",
-            formula=r"\bar{m}_{к}+\bar{m}_{с.у}+\bar{m}_{об.СН}=0.60 \; \text{или} \; 0.61",
-            values={"is_maneuverable": mass.is_maneuverable},
+            formula=r"\bar{m}_{к}+\bar{m}_{с.у}+\bar{m}_{об.СН} = \bar{m}_{пуст.снаряж}",
+            values={"empty_equipped_mass_ratio": chumak_total_ratio},
             result=float(chumak_total_ratio),
-            description="Первое приближение суммы относительных масс по Чумаку.",
+            unit="",
+            description="Первое приближение суммы относительных масс (задается пользователем).",
         )
 
         initial_denominator = 1.0 - chumak_total_ratio - fuel_ratio
@@ -82,7 +84,8 @@ class MassEstimationBlock(BaseBlock):
                 "denominator": initial_denominator,
             },
             result=float(initial_m0),
-            unit="kg"
+            unit="кг",
+            description="Стартовое значение массы для начала итерационного процесса."
         )
 
         special_equip_ratio = 0.08 if prelim.N == 1 else 0.11
@@ -91,6 +94,42 @@ class MassEstimationBlock(BaseBlock):
             formula=r"\bar{m}_{об.СН}=0.08 \; (n_{дв}=1), \quad \bar{m}_{об.СН}=0.11 \; (n_{дв}>1)",
             values={"engine_count": prelim.N},
             result=float(special_equip_ratio),
+            unit="",
+            description="Относительная масса целевого и навигационного оборудования."
+        )
+
+        project.add_trace(
+            value_name="Формулы массы крыла (Чумак)",
+            formula=(
+                r"m_{кр1} = 0.002 k_{мат} m_0 n_{max} f \left[ 0.6 \left(\frac{\sqrt{S \lambda}}{2}\right)^2 + 1 \right] + 3S \\ "
+                r"m_{кр2} = 0.0001 k_{мат} m_0 n_{max} f \lambda (\eta + 3) \sqrt{\frac{S}{\eta}} \sqrt{\bar{c}}"
+            ),
+            values={
+                "k_mat": mass.wing_material_factor,
+                "n_max": prelim.n_max,
+                "f": mass.f_factor,
+                "Lambda": prelim.Lambda,
+                "eta": project.geometry.eta_wing,
+                "c_rel": mass.wing_relative_thickness
+            },
+            result="Используются внутри итераций",
+            unit="",
+            description="Эмпирические зависимости для расчета массы крыла."
+        )
+
+        project.add_trace(
+            value_name="Итерационные уравнения масс (ДВС)",
+            formula=(
+                r"\bar{m}_{кр} = \frac{m_{кр1} + m_{кр2}}{2m_0} \\ "
+                r"\bar{m}_{ф} = \frac{0.584 \cdot k_{сх} \cdot (m_0 g)^{0.771}}{m_0} \\ "
+                r"\bar{m}_{оп} = \frac{m_{го} + m_{во}}{m_0} \\ "
+                r"\bar{m}_{ш} = \bar{m}_{ш,base} + \Delta \bar{m}_{тип} \\ "
+                r"\bar{m}_{с.у} = \frac{N_{дв} N_{взл} (\gamma_{дв} + k_N)}{m_0}"
+            ),
+            values={"max_iterations": mass.max_iterations, "tolerance": mass.wing_loading_tolerance},
+            result="Запуск цикла",
+            unit="",
+            description="Система формул для уточнения массы конструкции и силовой установки на каждом шаге итерации."
         )
 
         # --- ИТЕРАЦИОННЫЙ ЦИКЛ ---
@@ -112,13 +151,6 @@ class MassEstimationBlock(BaseBlock):
             g_ratio = self._calc_landing_gear_ratio(project, iteration)
 
             structure_ratio = w_ratio + f_ratio + t_ratio + g_ratio
-            project.add_trace(
-                value_name=f"iteration_{iteration}.structure_mass_ratio",
-                formula=r"\bar{m}_{к}=\bar{m}_{кр}+\bar{m}_{ф}+\bar{m}_{оп}+\bar{m}_{ш}",
-                values={"wing_ratio": w_ratio, "fuselage_ratio": f_ratio, "tail_ratio": t_ratio,
-                        "landing_gear_ratio": g_ratio},
-                result=float(structure_ratio)
-            )
 
             # Силовая установка
             powerplant_ratio = self._calc_ice_powerplant_ratio(project, current_m0, iteration)
@@ -128,13 +160,6 @@ class MassEstimationBlock(BaseBlock):
                 raise ValueError(f"Знаменатель итерации <= 0: {denominator}")
 
             next_m0 = numerator / denominator
-            project.add_trace(
-                value_name=f"iteration_{iteration}.updated_m0",
-                formula=r"m_{0,2}=\frac{m_{цн}+m_{сл}}{1-(\bar{m}_{к}+\bar{m}_{с.у}+\bar{m}_{об.СН}+\bar{m}_{т})}",
-                values={"structure": structure_ratio, "powerplant": powerplant_ratio, "fuel": fuel_ratio,
-                        "denominator": denominator},
-                result=float(next_m0)
-            )
 
             relative_delta = abs(next_m0 - current_m0) / current_m0
             history.append({"iteration": iteration, "m0_old": current_m0, "m0_new": next_m0, "delta": relative_delta})
@@ -161,13 +186,17 @@ class MassEstimationBlock(BaseBlock):
 
         battery_ratio = self._calc_battery_ratio(project)
         powerplant_ratio = self._calc_electric_powerplant_ratio(project)
-        initial_structure_ratio = 0.33 if mass.is_maneuverable else 0.30
+        
+        # Для электролета также берем стартовое приближение от пользователя
+        initial_structure_ratio = mass.empty_equipped_mass_ratio
 
         project.add_trace(
             value_name="initial_structure_mass_ratio",
-            formula=r"\bar{m}_{кон,0}=0.33 \; \text{или} \; 0.30",
-            values={"is_maneuverable": mass.is_maneuverable},
-            result=float(initial_structure_ratio)
+            formula=r"\bar{m}_{кон,0} = \bar{m}_{пуст.снаряж}",
+            values={"empty_equipped_mass_ratio": initial_structure_ratio},
+            result=float(initial_structure_ratio),
+            unit="",
+            description="Начальное приближение относительной массы для электролёта (задается пользователем)."
         )
 
         initial_denominator = 1.0 - initial_structure_ratio - battery_ratio - powerplant_ratio
@@ -175,6 +204,47 @@ class MassEstimationBlock(BaseBlock):
             raise ValueError(f"Знаменатель баланса масс <= 0: {initial_denominator}")
 
         initial_m0 = numerator / initial_denominator
+        project.add_trace(
+            value_name="electric_initial_m0",
+            formula=r"m_{0,1}=\frac{m_{цн}+m_{сл}}{1-(\bar{m}_{к}+\bar{m}_{с.у}+\bar{m}_{акб})}",
+            values={"numerator": numerator, "denominator": initial_denominator},
+            result=float(initial_m0),
+            unit="кг",
+            description="Стартовое значение массы для начала итерационного процесса."
+        )
+
+        project.add_trace(
+            value_name="Формулы массы крыла (Чумак)",
+            formula=(
+                r"m_{кр1} = 0.002 k_{мат} m_0 n_{max} f \left[ 0.6 \left(\frac{\sqrt{S \lambda}}{2}\right)^2 + 1 \right] + 3S \\ "
+                r"m_{кр2} = 0.0001 k_{мат} m_0 n_{max} f \lambda (\eta + 3) \sqrt{\frac{S}{\eta}} \sqrt{\bar{c}}"
+            ),
+            values={
+                "k_mat": mass.wing_material_factor,
+                "n_max": prelim.n_max,
+                "f": mass.f_factor,
+                "Lambda": prelim.Lambda,
+                "eta": project.geometry.eta_wing,
+                "c_rel": mass.wing_relative_thickness
+            },
+            result="Используются внутри итераций",
+            unit="",
+            description="Эмпирические зависимости для расчета массы крыла."
+        )
+
+        project.add_trace(
+            value_name="Итерационные уравнения масс конструкции",
+            formula=(
+                r"\bar{m}_{кр} = \frac{m_{кр1} + m_{кр2}}{2m_0} \\ "
+                r"\bar{m}_{ф} = \frac{0.584 \cdot k_{сх} \cdot (m_0 g)^{0.771}}{m_0} \\ "
+                r"\bar{m}_{оп} = \frac{m_{го} + m_{во}}{m_0} \\ "
+                r"\bar{m}_{ш} = \bar{m}_{ш,base} + \Delta \bar{m}_{тип}"
+            ),
+            values={"max_iterations": mass.max_iterations, "tolerance": mass.wing_loading_tolerance},
+            result="Запуск цикла",
+            unit="",
+            description="Система формул для уточнения массы конструкции на каждом шаге итерации."
+        )
 
         # --- ИТЕРАЦИОННЫЙ ЦИКЛ ---
         current_m0 = initial_m0
@@ -240,7 +310,15 @@ class MassEstimationBlock(BaseBlock):
         mass.iterations = iters
         mass.wing_loading_relative_delta = float(delta)
 
-        # --- ДОБАВЛЕНО: Сохраняем развесовку для блока технологий и графиков ---
+        project.add_trace(
+            value_name="m_MTO_final",
+            formula=r"m_0 = \frac{m_{цн} + m_{сл}}{1 - \sum \bar{m}_i}",
+            values={"converged": converged, "iterations": iters, "delta": delta},
+            result=float(m0),
+            unit="кг",
+            description="Уточненная взлетная масса после схождения итерационного баланса масс."
+        )
+
         project.databases["component_masses"] = {
             "payload": float(project.feasibility.payload_mass),
             "service_load": float(mass.service_load_mass),
@@ -252,22 +330,21 @@ class MassEstimationBlock(BaseBlock):
             "special_equipment": float(m0 * spec_equip_ratio),
             "fuel": float(m_F)
         }
-        # ------------------------------------------------------------------------
 
-        # Сохраняем историю в базу для графиков или таблиц UI
         project.databases["mass_iteration_history"] = history
 
     def _calc_breguet_fuel_ratio(self, project: 'ProjectState') -> float:
         mass = project.mass
-        prelim = project.preliminary
         exponent = -(project.feasibility.design_range * mass.cruise_sfc_power * STANDARD_GRAVITY /
-                     (mass.cruise_L_D_ratio * mass.propeller_efficiency * HP_TO_WATT * 3.6))
+                     (project.preliminary.K_max * mass.propeller_efficiency * HP_TO_WATT * 3.6))
         ratio = 1.0 - math.exp(exponent)
         project.add_trace(
             value_name="fuel_mass_ratio_breguet",
-            formula=r"\bar{m}_{т}=1-\exp\left(-\frac{LC_{e}g}{K\eta_{в}\cdot735.5\cdot3.6}\right)",
+            formula=r"\bar{m}_{т}=1-\exp\left(-\frac{L C_{e} g}{K \eta_{в} \cdot 735.5 \cdot 3.6}\right)",
             values={"L_km": project.feasibility.design_range, "C_e": mass.cruise_sfc_power},
-            result=float(ratio)
+            result=float(ratio),
+            unit="",
+            description="Относительная масса топлива по формуле Бреге."
         )
         return ratio
 
@@ -276,14 +353,16 @@ class MassEstimationBlock(BaseBlock):
         prelim = project.preliminary
         design_range_m = project.feasibility.design_range * 1000.0
         numerator = STANDARD_GRAVITY * (mass.cruise_altitude_m + (
-                    0.5 * prelim.V_cruise ** 2) / STANDARD_GRAVITY + design_range_m / mass.cruise_L_D_ratio)
+                0.5 * prelim.V_cruise ** 2) / STANDARD_GRAVITY + design_range_m / project.preliminary.K_max)
         denominator = 3600.0 * mass.battery_specific_energy_wh_kg * mass.electric_powertrain_efficiency
         ratio = numerator / denominator
         project.add_trace(
             value_name="battery_mass_ratio",
-            formula=r"\bar{m}_{акб}=\frac{g\left(H+\frac{0.5V_{кр}^{2}}{g}+\frac{L}{K}\right)}{3600q\eta_{су}}",
-            values={"q": mass.battery_specific_energy_wh_kg},
-            result=float(ratio)
+            formula=r"\bar{m}_{акб}=\frac{g\left(H+\frac{0.5V_{кр}^{2}}{g}+\frac{L}{K}\right)}{3600 q \eta_{су}}",
+            values={"q": mass.battery_specific_energy_wh_kg, "H": mass.cruise_altitude_m},
+            result=float(ratio),
+            unit="",
+            description="Относительная масса аккумуляторной батареи."
         )
         return ratio
 
@@ -295,7 +374,9 @@ class MassEstimationBlock(BaseBlock):
             value_name="electric_powerplant_mass_ratio",
             formula=r"\bar{m}_{с.у}=C_{с.у}\bar{N}_{0}",
             values={"coefficient": coefficient, "N0": mass.power_loading_N0_kw_kg},
-            result=float(ratio)
+            result=float(ratio),
+            unit="",
+            description="Относительная масса электрической силовой установки."
         )
         return ratio
 
@@ -310,14 +391,7 @@ class MassEstimationBlock(BaseBlock):
             gamma_engine = 0.20
 
         powerplant_mass = prelim.N * mass.takeoff_power_hp * (gamma_engine + k_n)
-        ratio = powerplant_mass / m0
-        project.add_trace(
-            value_name=f"iteration_{iteration}.ice_powerplant_mass_ratio",
-            formula=r"G_{с.у}=N_{дв}N_{e,взл}(\gamma_{дв}+k_N), \quad \bar{m}_{с.у}=G_{с.у}/m_0",
-            values={"m0": m0, "engine_count": prelim.N, "takeoff_power_hp": mass.takeoff_power_hp},
-            result=float(ratio)
-        )
-        return ratio
+        return powerplant_mass / m0
 
     def _calc_wing_ratio(self, project: 'ProjectState', m0: float, wing_area: float, iteration: int) -> float:
         mass = project.mass
@@ -325,33 +399,17 @@ class MassEstimationBlock(BaseBlock):
         geom = project.geometry
 
         m_wing_1 = 0.002 * mass.wing_material_factor * m0 * prelim.n_max * mass.f_factor * (
-                    0.6 * ((math.sqrt(wing_area * prelim.Lambda) / 2.0) ** 2) + 1.0) + 3.0 * wing_area
+                0.6 * ((math.sqrt(wing_area * prelim.Lambda) / 2.0) ** 2) + 1.0) + 3.0 * wing_area
         m_wing_2 = 0.0001 * mass.wing_material_factor * m0 * prelim.n_max * mass.f_factor * (
-                    prelim.Lambda * (geom.eta_wing + 3.0) * math.sqrt(wing_area / geom.eta_wing) * math.sqrt(
-                mass.wing_relative_thickness))
-        ratio = (m_wing_1 + m_wing_2) / (2.0 * m0)
-
-        project.add_trace(
-            value_name=f"iteration_{iteration}.wing_mass_ratio",
-            formula=r"\bar{m}_{кр}=\frac{m_{кр1}+m_{кр2}}{2m_0}",
-            values={"m0": m0, "S": wing_area, "m_wing_1": m_wing_1, "m_wing_2": m_wing_2},
-            result=float(ratio)
-        )
-        return ratio
+                prelim.Lambda * (geom.eta_wing + 3.0) * math.sqrt(wing_area / geom.eta_wing) * math.sqrt(
+            mass.wing_relative_thickness))
+        return (m_wing_1 + m_wing_2) / (2.0 * m0)
 
     def _calc_fuselage_ratio(self, project: 'ProjectState', m0: float, iteration: int) -> float:
         mass = project.mass
         k_sx = 1.0 if mass.wing_position == "high" else 0.85
         fuselage_mass = 0.584 * k_sx * (m0 ** 0.771)
-        ratio = fuselage_mass / m0
-
-        project.add_trace(
-            value_name=f"iteration_{iteration}.fuselage_mass_ratio",
-            formula=r"G_{ф}=0.584k_{сх}G_0^{0.771}, \quad \bar{m}_{ф}=G_{ф}/m_0",
-            values={"m0": m0, "G_f": fuselage_mass},
-            result=float(ratio)
-        )
-        return ratio
+        return fuselage_mass / m0
 
     def _calc_tail_ratio(self, project: 'ProjectState', m0: float, wing_area: float, iteration: int) -> float:
         prelim = project.preliminary
@@ -363,15 +421,7 @@ class MassEstimationBlock(BaseBlock):
 
         horizontal_tail_mass = 7.2 * (S_go ** 1.2) * (0.4 + (cruise_speed_km_h + 113.0) / 935.0)
         vertical_tail_mass = 6.8 * (S_vo ** 1.2) * (0.4 + (cruise_speed_km_h + 113.0) / 1100.0)
-        ratio = (horizontal_tail_mass + vertical_tail_mass) / m0
-
-        project.add_trace(
-            value_name=f"iteration_{iteration}.tail_mass_ratio",
-            formula=r"\bar{m}_{оп}=\frac{m_{г.о}+m_{в.о}}{m_0}",
-            values={"m0": m0, "S_go": S_go, "S_vo": S_vo},
-            result=float(ratio)
-        )
-        return ratio
+        return (horizontal_tail_mass + vertical_tail_mass) / m0
 
     def _calc_landing_gear_ratio(self, project: 'ProjectState', iteration: int) -> float:
         mass = project.mass
@@ -389,14 +439,5 @@ class MassEstimationBlock(BaseBlock):
         base_ratio = k_con * k_obt * (11.3 + 6.0 * mass.landing_gear_strut_length_m) * 1e-3 + 0.005
 
         if mass.landing_gear_type == "ski":
-            ratio = base_ratio + 0.032
-        else:
-            ratio = base_ratio + (0.022 if mass.has_brakes else 0.024)
-
-        project.add_trace(
-            value_name=f"iteration_{iteration}.landing_gear_mass_ratio",
-            formula=r"\bar{m}_{ш,base}=k_{кон}k_{обт}(11.3+6H_{ош})10^{-3}+0.005; \bar{m}_{ш}=\bar{m}_{ш,base}+\Delta\bar{m}_{тип}",
-            values={"base_ratio": base_ratio},
-            result=float(ratio)
-        )
-        return ratio
+            return base_ratio + 0.032
+        return base_ratio + (0.022 if mass.has_brakes else 0.024)

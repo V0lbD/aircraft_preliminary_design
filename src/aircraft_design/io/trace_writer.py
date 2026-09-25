@@ -1,72 +1,106 @@
-import json
 from pathlib import Path
-
+from typing import Any
 from aircraft_design.core.models.project import ProjectState
 
 
-def write_trace_json(project: ProjectState, path: str | Path, *, indent: int = 2) -> None:
-    """Записывает ход вычислений в виде машиночитаемого JSON-файла."""
-    output_path = Path(path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    data = {
-        "schema_version": project.schema_version,
-        "success": len(project.errors) == 0,
-        "records_count": len(project.trace_records),
-        "records": project.trace_records,
-    }
-
-    output_path.write_text(json.dumps(data, ensure_ascii=False, indent=indent), encoding="utf-8")
+def _format_value(val: Any) -> str:
+    """Умное форматирование чисел для отчета."""
+    if isinstance(val, float):
+        if val == 0.0:
+            return "0"
+        # Если число больше 0.001, округляем до 3 знаков после запятой
+        if abs(val) >= 0.001:
+            s = f"{val:.3f}"
+            return s.rstrip("0").rstrip(".") if "." in s else s
+        return f"{val:.3e}"
+    return str(val)
 
 
-def write_trace_markdown(project: ProjectState, path: str | Path) -> None:
-    """Записывает ход вычислений в виде удобного для чтения файла Markdown."""
-    output_path = Path(path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+def _build_unit_map(project: ProjectState) -> dict[str, str]:
+    """Динамически собирает единицы измерения из всех параметров проекта."""
+    unit_map = {}
+    # Проходим по всем группам параметров
+    for group_name in ["feasibility", "preliminary", "mass", "technology", "geometry"]:
+        group = getattr(project, group_name, None)
+        if group:
+            # Извлекаем параметры прямо из класса
+            for attr_name, attr in group.__class__.__dict__.items():
+                if hasattr(attr, "unit") and attr.unit:
+                    unit_map[attr_name] = attr.unit
 
-    success_text = "True" if len(project.errors) == 0 else "False"
+    # Добавляем алиасы для переменных, которые мы переименовывали внутри add_trace
+    unit_map.update({
+        "range": unit_map.get("design_range", ""),
+        "duration": unit_map.get("flight_duration_h", ""),
+        "speed": unit_map.get("max_speed", ""),
+        "ceiling": unit_map.get("practical_ceiling_m", ""),
+        "payload": unit_map.get("payload_mass", ""),
+        "S_wing": unit_map.get("S_W", ""),
+        "lambda_wing": unit_map.get("Lambda", ""),
+    })
+    return unit_map
+
+
+def write_trace_markdown(project: ProjectState, file_path: str | Path) -> None:
+    """Экспорт трассировки расчетов (формул и значений) в Markdown."""
+    if not project.trace_records:
+        raise ValueError("Нет данных для трассировки. Сначала выполните расчет.")
+
+    unit_map = _build_unit_map(project)
+
     lines = [
-        "# Aircraft preliminary design calculation trace\n",
-        f"- Schema version: `{project.schema_version}`",
-        f"- Calculation success: `{success_text}`",
-        f"- Trace records: `{len(project.trace_records)}`\n",
+        "# Отчет о ходе расчета (Trace)",
+        "Ниже приведены основные формулы, подставленные значения и результаты вычислений.\n"
     ]
 
-    if not project.trace_records:
-        lines.append("No trace records were collected.\n")
-        output_path.write_text("\n".join(lines), encoding="utf-8")
-        return
-
-    # Группируем логи по имени блока
-    grouped = {}
+    current_block = None
     for record in project.trace_records:
-        block = record.get("block", "unknown")
-        grouped.setdefault(block, []).append(record)
+        block = record.get("block") or "Общее"
+        if block != current_block:
+            lines.append(f"## Блок: {block}")
+            current_block = block
 
-    for block_name, records in grouped.items():
-        lines.append(f"## {block_name}\n")
+        val_name = record.get("value_name", "Параметр")
+        desc = record.get("description", "")
+        formula = record.get("formula", "")
+        res = record.get("result", "")
+        res_unit = record.get("unit", "")
 
-        for i, r in enumerate(records, 1):
-            val_name = r.get('value_name', '')
-            lines.append(f"### {i}. {val_name}\n")
+        lines.append(f"### {val_name}")
+        if desc:
+            lines.append(f"**Описание:** {desc}")
 
-            if desc := r.get('description'):
-                lines.append(f"{desc}\n")
+        if formula:
+            lines.append("**Формула:**")
+            # Если формула склеена через \\ и это не система уравнений (cases)
+            if r"\\" in formula and r"\begin" not in formula:
+                parts = formula.split(r"\\")
+                for part in parts:
+                    if part.strip():
+                        lines.append(f"$$\n{part.strip()}\n$$")
+            else:
+                lines.append(f"$$\n{formula}\n$$")
 
-            lines.append("**Formula:**\n")
-            lines.append(f"$$\n{r.get('formula', '')}\n$$\n")
+        vals = record.get("values", {})
+        if vals:
+            formatted_vals = []
+            for k, v in vals.items():
+                val_str = _format_value(v)
+                unit_str = unit_map.get(k, "")
 
-            if values := r.get('values'):
-                lines.append("**Values:**\n")
-                for k, v in values.items():
-                    v_str = f"{v:.6e}" if isinstance(v, float) and (abs(v) >= 1e6 or (0 < abs(v) < 1e-4)) else str(v)
-                    lines.append(f"- `{k}` = `{v_str}`")
-                lines.append("\n")
+                # Собираем строку вида "V_s = 20 км/ч"
+                if unit_str:
+                    formatted_vals.append(f"{k} = {val_str} {unit_str}")
+                else:
+                    formatted_vals.append(f"{k} = {val_str}")
 
-            result = r.get('result')
-            unit = r.get('unit', '')
-            res_str = f"{result:.6e}" if isinstance(result, float) and (
-                        abs(result) >= 1e6 or (0 < abs(result) < 1e-4)) else str(result)
-            lines.append(f"**Result:**\n\n`{val_name}` = `{res_str}` {unit}\n\n---\n")
+            vals_str = ", ".join(formatted_vals)
+            lines.append(f"**Значения:** `{vals_str}`")
 
+        res_str = f"{_format_value(res)} {res_unit}".strip()
+        lines.append(f"**Результат:** `{res_str}`\n")
+        lines.append("---\n")
+
+    output_path = Path(file_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text("\n".join(lines), encoding="utf-8")

@@ -6,6 +6,7 @@ import math
 import numpy as np
 
 from aircraft_design.core.blocks.base import BaseBlock
+from aircraft_design.core.errors import InputValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,7 @@ class PreliminarySizingBlock(BaseBlock):
             formula=r"C_x = C_{x0} + \frac{C_y^2}{\pi e \lambda}",
             values={"C_x0": ps.C_x0, "C_y": C_y, "e": ps.e, "Lambda": ps.Lambda},
             result=float(C_x),
+            unit="",
             description="Коэффициент сопротивления для максимального аэродинамического качества.",
         )
 
@@ -48,16 +50,19 @@ class PreliminarySizingBlock(BaseBlock):
             formula=r"K_{max} = \frac{C_y}{C_x}",
             values={"C_y": C_y, "C_x": C_x},
             result=float(C_y / C_x),
+            unit="",
+            description="Максимальное аэродинамическое качество самолета."
         )
 
-        # 3. Расчет ограничений
+        # 3. Расчет ограничений (скалярные величины)
         p0_by_V_s = 0.5 * ps.pho_V_s * ps.V_s ** 2 * ps.C_y_max
         project.add_trace(
             value_name="p0_by_V_s",
             formula=r"p_{0,V_s} = \frac{1}{2} \cdot \rho_{V_s} \cdot V_s^2 \cdot C_{y,max}",
             values={"pho_V_s": ps.pho_V_s, "V_s": ps.V_s, "C_y_max": ps.C_y_max},
             result=float(p0_by_V_s),
-            description="Ограничение по скорости сваливания.",
+            unit="Н/м²",
+            description="Ограничение по скорости сваливания (максимальная удельная нагрузка на крыло).",
         )
 
         if ps.N == 1:
@@ -78,10 +83,36 @@ class PreliminarySizingBlock(BaseBlock):
             ),
             values={"N": ps.N, "theta": ps.theta, "C_x0": ps.C_x0, "Lambda": ps.Lambda, "e": ps.e},
             result=float(P0_by_theta),
-            description="Ограничение по градиенту набора высоты.",
+            unit="",
+            description="Ограничение по градиенту набора высоты (минимальная тяговооруженность).",
         )
 
         # 4. Генерация массивов для графиков
+
+        # --- Подготовка констант для новой формулы взлётной дистанции ---
+        g = 9.80665
+        mu = 0.3  # Заданный коэффициент трения
+        k = 1.0 / (math.pi * ps.e * ps.Lambda)
+        C_x_max = ps.C_x0 + k * (ps.C_y_max_TO ** 2)
+        # Динамическое давление на характерной скорости отрыва (V_s / sqrt(2))^2
+        rho_v_sq = ps.pho_V_s * (ps.V_s / math.sqrt(2)) ** 2
+        # ---------------------------------------------------------------
+
+        # Добавляем в Trace формулы, по которым будут строиться кривые ограничений
+        project.add_trace(
+            value_name="Уравнения границ области существования",
+            formula=(
+                r"P_{0, n_{max}} = \frac{C_{x0} \frac{\rho V_{cr}^2}{2}}{p_0} + \frac{p_0 n_{max}^2}{\pi \lambda e \frac{\rho V_{cr}^2}{2}} \\ "
+                r"P_{0, L_{TODA}} = \frac{V_s^2}{2 g L_{TODA}} + \frac{\rho \left(\frac{V_s}{\sqrt{2}}\right)^2 C_{x}}{p_0} + \mu \left(1 - \frac{\rho \left(\frac{V_s}{\sqrt{2}}\right)^2 C_{y,max,TO}}{p_0}\right) \\ "
+                r"P_{0, V_y} = \frac{V_y}{\sqrt{\frac{2 p_0}{\rho_{V_y} C_y}}} + \frac{C_x}{C_y} \\ "
+                r"P_{0, V_{cr}} = \frac{C_{x0} \frac{\rho V_{cr}^2}{2}}{p_0} + \frac{p_0}{\pi \lambda e \frac{\rho V_{cr}^2}{2}}"
+            ),
+            values={"n_max": ps.n_max, "L_TODA": ps.L_TODA, "V_y": ps.V_y, "V_cruise": ps.V_cruise, "C_x": C_x_max, "mu": mu},
+            result="Массивы точек сгенерированы",
+            unit="",
+            description="Формулы кривых ограничений (перегрузка, дистанция, скороподъемность, крейсер), используемые для поиска оптимума."
+        )
+
         p0_range = (10.0, p0_by_V_s * 1.2)
         p0_points = np.linspace(p0_range[0], p0_range[1], 100)
 
@@ -97,8 +128,11 @@ class PreliminarySizingBlock(BaseBlock):
                     math.pi * ps.Lambda * ps.e * 0.5 * ps.pho_V_cruise * ps.V_cruise ** 2)))
             P0_by_n_max_points.append((float(p0), float(P0_n_max)))
 
-            # Взлётная дистанция
-            P0_L_TODA = (p0 / ps.L_TODA) * (1 / ps.C_y_max_TO) * (1 / ps.sigma)
+            # Взлётная дистанция (Новая формула из тетради)
+            term1 = (ps.V_s ** 2) / (2.0 * g * ps.L_TODA)
+            term2 = (rho_v_sq * C_x_max) / p0
+            term3 = mu * (1.0 - (rho_v_sq * ps.C_y_max_TO) / p0)
+            P0_L_TODA = term1 + term2 + term3
             P0_by_L_TODA_points.append((float(p0), float(P0_L_TODA)))
 
             # Скороподъёмность
@@ -110,7 +144,7 @@ class PreliminarySizingBlock(BaseBlock):
                     1 / (math.pi * ps.Lambda * ps.e * 0.5 * ps.pho_V_cruise * ps.V_cruise ** 2)))
             P0_by_V_cruise_points.append((float(p0), float(P0_V_cruise)))
 
-        # 5. Поиск оптимальной точки (используем те же методы из старого кода)
+        # 5. Поиск оптимальной точки
         p0_optimal, P0_optimal, active_constraints = self.find_optimal_point(
             p0_by_V_s=p0_by_V_s,
             P0_by_theta_points=P0_by_theta_points,
@@ -120,11 +154,25 @@ class PreliminarySizingBlock(BaseBlock):
             P0_by_V_cruise_points=P0_by_V_cruise_points,
         )
 
+        # Переводим числовые ID ограничений (15, 16...) в понятный текст
+        active_labels = [CONSTRAINT_LABELS.get(c, f"Ограничение {c}") for c in active_constraints]
+
         project.add_trace(
-            value_name="optimal_point",
-            formula=r"(p_{0,opt}, P_{0,opt}) = \arg\min P_{0,envelope}(p_0)",
-            values={"active_constraints": active_constraints},
-            result={"p0_optimal": float(p0_optimal), "P0_optimal": float(P0_optimal)},
+            value_name="p0_optimal",
+            formula=r"p_{0,opt} = \arg\min P_{0,envelope}(p_0)",
+            values={"Активные ограничения": ", ".join(active_labels)},
+            result=float(p0_optimal),
+            unit="Н/м²",
+            description="Оптимальная удельная нагрузка на крыло."
+        )
+
+        project.add_trace(
+            value_name="P0_optimal",
+            formula=r"P_{0,opt} = \min P_{0,envelope}(p_0)",
+            values={"p0_optimal": float(p0_optimal)},
+            result=float(P0_optimal),
+            unit="",
+            description="Оптимальная стартовая тяговооруженность."
         )
 
         # 6. Записываем скалярные результаты обратно в проект через дескрипторы
@@ -148,33 +196,39 @@ class PreliminarySizingBlock(BaseBlock):
 
     @staticmethod
     def find_cx_cy(
-        C_x0: float,
-        e: float,
-        aspect_ratio: float,
+            C_x0: float,
+            e: float,
+            aspect_ratio: float,
+            n_points: int = 2000,
     ) -> tuple[float, float]:
         """
-        Расчёт C_x и C_y для достижения максимальной аэродинамической эффективности.
+        Численный расчёт C_x и C_y методом перебора сетки по поляре.
         """
-        C_y_points = np.linspace(0, 2, 1000)
+        # 1. Задаём диапазон Cy
+        C_y_points = np.linspace(0.0, 2.0, n_points)
         C_x_points = []
 
+        # 2. Вычисляем Cx для каждого Cy (строим поляру)
+        k = 1.0 / (math.pi * e * aspect_ratio)
         for C_y in C_y_points:
-            C_x = C_x0 + (C_y**2) / (math.pi * e * aspect_ratio)
+            C_x = C_x0 + k * (C_y ** 2)
             C_x_points.append(C_x)
 
+        # 3. Инициализируем переменные для поиска максимума
         C_x_for_max_K = C_x_points[0]
         C_y_for_max_K = C_y_points[0]
         K_max = C_y_for_max_K / C_x_for_max_K
 
-        for C_x in C_x_points:
-            for C_y in C_y_points:
-                K = C_y / C_x
-                if K > K_max:
-                    C_y_for_max_K = C_y
-                    C_x_for_max_K = C_x
-                    K_max = K
+        # 4. Один цикл по согласованным парам (Cx, Cy) на поляре
+        for C_x, C_y in zip(C_x_points, C_y_points):
+            K = C_y / C_x
+            if K > K_max:
+                K_max = K
+                C_x_for_max_K = C_x
+                C_y_for_max_K = C_y
 
         return float(C_x_for_max_K), float(C_y_for_max_K)
+
 
     @staticmethod
     def find_optimal_point(

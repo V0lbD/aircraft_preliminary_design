@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
-from aircraft_design.core.models.parameter import Parameter, rule_min, rule_max,rule_positive
+from aircraft_design.core.models.parameter import Parameter, rule_min, rule_max, rule_positive
 
 
 class DataGroup:
@@ -42,6 +42,10 @@ class FeasibilityData(DataGroup):
     payload_mass = Parameter(
         "Полезная нагрузка", unit="кг", default=520.0, rules=[rule_min(0)],
         description="Масса коммерческой нагрузки (пассажиры, багаж, целевое оборудование)."
+    )
+    feasibility_tolerance_pct = Parameter(
+        "Допустимое превышение", unit="%", default=10.0, rules=[rule_min(0)],
+        description="Допустимое превышение комплексного показателя проекта над лучшим аналогом."
     )
 
     # --- Выходные параметры ---
@@ -156,13 +160,9 @@ class MassEstimationData(DataGroup):
     )
     battery_equipment_mass = Parameter("Масса обор. АКБ", unit="кг", default=0.0, rules=[rule_min(0)])
     control_equipment_mass = Parameter("Масса обор. управления", unit="кг", default=0.0, rules=[rule_min(0)])
-    cruise_L_D_ratio = Parameter(
-        "Аэродинамическое качество", default=10.0, rules=[rule_positive],
-        description="Отношение подъемной силы к лобовому сопротивлению (K) на крейсерском режиме."
-    )
-    is_maneuverable = Parameter(
-        "Маневренный самолёт", default=False,
-        description="Определяет повышенные требования к жесткости конструкции и весовые коэффициенты."
+    empty_equipped_mass_ratio = Parameter(
+        "Относительная масса пустого снаряжённого самолета", default=0.61, rules=[rule_min(0.1), rule_max(0.9)],
+        description="Первое приближение суммы относительных масс конструкции, силовой установки и оборудования (от 0.1 до 0.9)."
     )
     is_under_2_5kg = Parameter("Масса менее 2.5 кг", default=False)
     battery_specific_energy_wh_kg = Parameter(
@@ -325,7 +325,6 @@ class GeometryData(DataGroup):
         "Стреловидность крыла (1/4)", unit="град", default=25.0,
         description="Угол стреловидности по линии четвертей хорд."
     )
-    wing_scheme = Parameter("Схема крыла", default="low", choices=("low", "mid", "high"))
 
     # --- Входные параметры (ГО) ---
     k_horizontal_tail = Parameter(

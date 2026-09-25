@@ -112,6 +112,21 @@ class FeasibilityBlock(BaseBlock):
         max_ceiling = max(a["ceiling"] for a in analogs) or 1.0
         max_payload = max(a["payload"] for a in analogs) or 1.0
 
+        # Добавляем в Trace информацию о найденных максимумах для нормировки
+        project.add_trace(
+            value_name="M_kj (Максимумы аналогов)",
+            formula=r"M_{kj} = \max_{1 \le i \le N_k} X_{kij}",
+            values={
+                "M_range": max_range,
+                "M_duration": max_duration,
+                "M_speed": max_speed,
+                "M_ceiling": max_ceiling,
+                "M_payload": max_payload
+            },
+            result="Найдено",
+            description="Максимальные значения летно-технических характеристик среди аналогов в группе.",
+        )
+
         # 7. Расчет показателя для аналогов
         max_stat_score = 0.0
         best_analog_name = ""
@@ -135,24 +150,30 @@ class FeasibilityBlock(BaseBlock):
                 max_stat_score = a["score"]
                 best_analog_name = a["name"]
 
-        # 8. Расчет показателя проекта
+        # 8. Расчет показателя проекта и вкладов каждого параметра
         norm_proj_range = feas.design_range / max_range
         norm_proj_duration = feas.flight_duration_h / max_duration
         norm_proj_speed = feas.max_speed / max_speed
         norm_proj_ceiling = feas.practical_ceiling_m / max_ceiling
         norm_proj_payload = feas.payload_mass / max_payload
 
-        project_score = (
-                norm_proj_range * w_range +
-                norm_proj_duration * w_duration +
-                norm_proj_speed * w_speed +
-                norm_proj_ceiling * w_ceiling +
-                norm_proj_payload * w_payload
-        )
+        proj_contributions = {
+            "дальность полета": norm_proj_range * w_range,
+            "длительность полета": norm_proj_duration * w_duration,
+            "скорость": norm_proj_speed * w_speed,
+            "практический потолок": norm_proj_ceiling * w_ceiling,
+            "полезная нагрузка": norm_proj_payload * w_payload
+        }
 
-        is_feasible = project_score <= (max_stat_score * 1.10)
+        project_score = sum(proj_contributions.values())
 
-        # 9. Запись трассировки (Trace для Markdown)
+        # Читаем пользовательский допуск из интерфейса (в процентах)
+        tolerance_pct = feas.feasibility_tolerance_pct
+        tolerance_factor = 1.0 + (tolerance_pct / 100.0)
+
+        is_feasible = project_score <= (max_stat_score * tolerance_factor)
+
+        # 9. Запись основных результатов в трассировку
         project.add_trace(
             value_name="I_max_stat",
             formula=r"I_{k_{max}} = \max_{1 \le i \le N_k} \sum_{j=1}^m w_j \cdot X_{kij}'",
@@ -175,23 +196,32 @@ class FeasibilityBlock(BaseBlock):
             description="Комплексный показатель проектируемого БЛА.",
         )
 
-        # 10. Запись результатов в проект
-        # Сохраняем итоговые переменные обратно в дескрипторы проекта
+        # Новая трассировка: проверка итогового условия с учетом допуска
+        project.add_trace(
+            value_name="Условие реализуемости",
+            formula=r"I_{proj} \le I_{k_{max}} \cdot \left(1 + \frac{\delta}{100}\right)",
+            values={
+                "I_proj": project_score,
+                "I_kmax": max_stat_score,
+                "delta": tolerance_pct
+            },
+            result="Выполняется" if is_feasible else "Не выполняется",
+            description="Проверка того, укладывается ли показатель проекта в допустимое превышение над аналогом.",
+        )
+
+        # 10. Запись результатов обратно в проект
         feas.project_score = float(project_score)
         feas.max_stat_score = float(max_stat_score)
         feas.best_analog_name = best_analog_name
         feas.is_feasible = is_feasible
 
-        # Сохраняем таблицу аналогов в словарик databases проекта для UI
         project.databases["feasibility_analogs"] = analogs
 
         # 11. Прерывание при нереализуемости
         if not is_feasible:
-            # Бросаем ошибку. Базовый класс BaseBlock перехватит её,
-            # запишет в лог и остановит дальнейшие блоки.
+            max_param_name = max(proj_contributions, key=proj_contributions.get)
             raise FeasibilityError(
-                f"ТТТ нереализуемы. Комплексный показатель проекта ({project_score:.3f}) "
-                f"превышает аналог '{best_analog_name}' ({max_stat_score:.3f}) более чем на 10%."
+                f"Невозможно сформировать облик по параметру |_{max_param_name}_|"
             )
 
     @staticmethod

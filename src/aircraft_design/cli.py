@@ -39,6 +39,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Опциональный путь для экспорта параметров геометрии в формат .dat для 3D-моделирования.",
     )
+    parser.add_argument(
+        "--export-trace",
+        dest="trace_path",
+        default=None,
+        help="Опциональный путь для экспорта отчета с формулами (.md).",
+    )
     return parser
 
 
@@ -71,6 +77,11 @@ def main(argv: list[str] | None = None) -> int:
             from aircraft_design.io.dat_writer import write_3d_dat
             write_3d_dat(project, Path(args.dat_path))
             print(f"Файл 3D-модели сохранён в: {args.dat_path}")
+
+        if args.trace_path:
+            from aircraft_design.io.trace_writer import write_trace_markdown
+            write_trace_markdown(project, Path(args.trace_path))
+            print(f"Отчет с формулами сохранён в: {args.trace_path}")
 
         return 0 if success else 1
 
