@@ -74,6 +74,7 @@ class MainWindow(QMainWindow):
         self._save_txt_button = QPushButton("Сохранить TXT", self)
         self._save_json_button = QPushButton("Сохранить JSON", self)
         self._save_dat_button = QPushButton("Экспорт 3D (.dat)", self)
+        self._save_trace_button = QPushButton("Отчет с формулами (.md)", self)
         self._clear_button = QPushButton("Очистить результаты", self)
 
         self._setup_layout()
@@ -94,6 +95,7 @@ class MainWindow(QMainWindow):
         toolbar_layout.addWidget(self._save_txt_button)
         toolbar_layout.addWidget(self._save_json_button)
         toolbar_layout.addWidget(self._save_dat_button)
+        toolbar_layout.addWidget(self._save_trace_button)
         toolbar_layout.addWidget(self._clear_button)
 
         top_splitter = QSplitter(Qt.Orientation.Horizontal, self)
@@ -125,6 +127,7 @@ class MainWindow(QMainWindow):
         self._save_txt_button.clicked.connect(self._on_save_txt_clicked)
         self._save_json_button.clicked.connect(self._on_save_json_clicked)
         self._save_dat_button.clicked.connect(self._on_save_dat_clicked)
+        self._save_trace_button.clicked.connect(self._on_save_trace_clicked)
         self._clear_button.clicked.connect(self._on_clear_clicked)
 
     def _load_project_to_ui(self) -> None:
@@ -172,6 +175,24 @@ class MainWindow(QMainWindow):
             self._set_status(f"Файл 3D-модели сохранён: {file_path}")
         except Exception as exc:
             logger.exception("Failed to export DAT result")
+            self._show_error("Ошибка экспорта", str(exc))
+
+    def _on_save_trace_clicked(self) -> None:
+        if not self._project.trace_records:
+            self._show_warning("Нет результатов", "Сначала выполните расчёт.")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Сохранить отчет (Trace)", "outputs/trace.md", "Markdown files (*.md);;All files (*.*)"
+        )
+        if not file_path: return
+
+        try:
+            from aircraft_design.io.trace_writer import write_trace_markdown
+            write_trace_markdown(self._project, Path(file_path))
+            self._set_status(f"Отчет сохранён: {file_path}")
+        except Exception as exc:
+            logger.exception("Failed to export trace")
             self._show_error("Ошибка экспорта", str(exc))
 
     def _on_save_input_json_clicked(self) -> None:
