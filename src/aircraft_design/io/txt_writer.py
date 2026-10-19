@@ -15,16 +15,16 @@ SECTION_NAMES = {
 
 
 def write_txt_result(project: ProjectState, path: str | Path) -> None:
-    """Write human-readable calculation report to TXT file."""
+    """Создает отчет в TXT-файл."""
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    status = "SUCCESS" if len(project.errors) == 0 else "FAILED"
+    status = "УСПЕХ" if len(project.errors) == 0 else "ОШИБКА"
     lines = [
-        "Aircraft preliminary design report",
+        "Отчёт работы приложения Aircraft preliminary design",
         "=" * 60,
-        f"Created at: {datetime.now().isoformat(timespec='seconds')}",
-        f"Calculation status: {status}\n",
+        f"Создан: {datetime.now().isoformat(timespec='seconds')}",
+        f"Статус расчёта: {status}\n",
     ]
 
     # Динамический вывод результатов блоков

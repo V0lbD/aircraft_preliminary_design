@@ -11,7 +11,6 @@ logger = logging.getLogger(__name__)
 class Orchestrator:
     """
     Управляет последовательным выполнением расчётных блоков.
-    В новой архитектуре работает напрямую с объектом ProjectState.
     """
 
     def __init__(
@@ -33,7 +32,7 @@ class Orchestrator:
 
         # Конвейерный прогон через все блоки
         for block in self.blocks:
-            # Напомним: block.run() теперь сам ловит исключения и пишет их в project
+            # block.run() сам ловит исключения и пишет их в project
             success = block.run(project)
 
             if not success:
