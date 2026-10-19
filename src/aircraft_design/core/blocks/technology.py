@@ -219,7 +219,7 @@ class TechnologyBlock(BaseBlock):
             nelpotr = TLA * nel_val
 
             if ndet_val > 0:
-                nstan_raw = nelpotr / ndet_val
+                nstan_raw = round(nelpotr / ndet_val, 9)
                 if nstan_raw == 0:
                     nstan = 0
                 elif nstan_raw < 1.1:

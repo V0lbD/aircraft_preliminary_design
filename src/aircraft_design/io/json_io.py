@@ -80,26 +80,30 @@ def load_project_from_json(project: ProjectState, file_path: str | Path) -> None
                 project.add_error(f"Ошибка загрузки параметра {group_name}.{attr_name}: {e}")
 
 
-def create_input_template(project: ProjectState) -> dict[str, Any]:
-    """Генерирует JSON-шаблон со всеми входными параметрами и их значениями по умолчанию."""
-    data = {
-        "schema_version": project.schema_version,
-        "aircraft": {"aircraft_type": "business_jet"},
-        "metadata": {"source": "template"}
-    }
-
+def generate_json_description_template(project: ProjectState, file_path: str | Path) -> None:
+    """Создает JSON-шаблон, где значениями являются описания параметров."""
+    data = {"schema_version": project.schema_version}
     groups = ["feasibility", "preliminary", "mass", "geometry", "technology"]
 
     for group_name in groups:
         group_obj = getattr(project, group_name, None)
-        if not group_obj: continue
+        if not group_obj:
+            continue
 
         group_data = {}
         for attr_name, param in _get_parameters_from_group(group_obj):
-            if param.is_input:
-                group_data[attr_name] = param.default
+            if not param.is_input:
+                continue
+
+            unit_str = f" [{param.unit}]" if param.unit else ""
+            desc_str = f" | {param.description}" if param.description else ""
+
+            # Записываем строку с описанием прямо в значение параметра
+            group_data[attr_name] = f"{param.display_name}{unit_str}{desc_str}"
 
         if group_data:
             data[group_name] = group_data
 
-    return data
+    path = Path(file_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=4, ensure_ascii=False), encoding="utf-8")

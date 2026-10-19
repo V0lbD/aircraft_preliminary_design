@@ -16,7 +16,7 @@ class FeasibilityData(DataGroup):
 
     # --- Входные параметры ---
     powerplant_type = Parameter(
-        "Тип силовой установки", category="Общие", default="ice", choices=("electric", "ice", "hybrid"),
+        "Тип силовой установки", category="Общие", default="ice", choices=("electric", "ice"),
         description="Определяет физические принципы расчета масс и потребления энергии в алгоритме."
     )
     target_takeoff_mass = Parameter(
@@ -40,7 +40,7 @@ class FeasibilityData(DataGroup):
         description="Высота, на которой вертикальная скороподъемность падает до 0.5 м/с."
     )
     payload_mass = Parameter(
-        "Полезная нагрузка", unit="кг", default=520.0, rules=[rule_min(0)],
+        "Целевая нагрузка", unit="кг", default=520.0, rules=[rule_min(0)],
         description="Масса коммерческой нагрузки (пассажиры, багаж, целевое оборудование)."
     )
     feasibility_tolerance_pct = Parameter(
@@ -213,9 +213,13 @@ class MassEstimationData(DataGroup):
     )
 
     # --- Выходные параметры ---
+    m_MTO_initial = Parameter(
+        "Стартовая взлётная масса (1-е приближение)", unit="кг", is_input=False,
+        description="Начальное приближение взлётной массы (m0,1) до запуска цикла итераций."
+    )
     m_MTO = Parameter(
-        "Максимальная взлётная масса", unit="кг", is_input=False,
-        description="Итоговая расчетная масса самолета перед стартом (M0)."
+        "Взлётная масса (после итераций)", unit="кг", is_input=False,
+        description="Расчётная взлётная масса самолёта после схождения итераций (входная для блока технологий)."
     )
     m_OE = Parameter(
         "Масса пустого самолёта", unit="кг", is_input=False,
@@ -235,7 +239,7 @@ class MassEstimationData(DataGroup):
     )
     m_OE_ratio = Parameter("Относит. масса пустого", is_input=False, description="Доля массы пустого самолета в МВМ.")
     m_F_ratio = Parameter("Относит. масса топлива", is_input=False, description="Доля массы топлива (или АКБ) в МВМ.")
-    useful_load_ratio = Parameter("Относит. полезная нагрузка", is_input=False,
+    useful_load_ratio = Parameter("Относит. целевая нагрузка", is_input=False,
                                   description="Доля коммерческой и служебной нагрузки в МВМ.")
     converged = Parameter("Итерация сошлась", is_input=False,
                           description="Успешность схождения итерационного баланса масс.")
@@ -245,6 +249,22 @@ class MassEstimationData(DataGroup):
                                             description="Фактическая ошибка массы между последними шагами расчета.")
     structure_mass_ratio = Parameter("Относит. масса конструкции", is_input=False,
                                      description="Суммарная доля массы крыла, фюзеляжа, оперения и шасси.")
+    wing_mass_ratio = Parameter(
+        "Относит. масса крыла", is_input=False,
+        description="Доля массы крыла в взлетной массе ЛА после итерационного расчета (до блока технологий)."
+    )
+    fuselage_mass_ratio = Parameter(
+        "Относит. масса фюзеляжа", is_input=False,
+        description="Доля массы фюзеляжа в взлетной массе ЛА после итерационного расчета (до блока технологий)."
+    )
+    tail_mass_ratio = Parameter(
+        "Относит. масса оперения", is_input=False,
+        description="Доля массы оперения в взлетной массе ЛА после итерационного расчета (до блока технологий)."
+    )
+    landing_gear_mass_ratio = Parameter(
+        "Относит. масса шасси", is_input=False,
+        description="Доля массы шасси в взлетной массе ЛА после итерационного расчета."
+    )
 
 
 class TechnologyData(DataGroup):

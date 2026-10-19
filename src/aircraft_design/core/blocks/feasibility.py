@@ -162,7 +162,7 @@ class FeasibilityBlock(BaseBlock):
             "длительность полета": norm_proj_duration * w_duration,
             "скорость": norm_proj_speed * w_speed,
             "практический потолок": norm_proj_ceiling * w_ceiling,
-            "полезная нагрузка": norm_proj_payload * w_payload
+            "целевая нагрузка": norm_proj_payload * w_payload
         }
 
         project_score = sum(proj_contributions.values())

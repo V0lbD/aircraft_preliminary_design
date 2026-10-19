@@ -121,7 +121,7 @@ class MassEstimationBlock(BaseBlock):
             value_name="Итерационные уравнения масс (ДВС)",
             formula=(
                 r"\bar{m}_{кр} = \frac{m_{кр1} + m_{кр2}}{2m_0} \\ "
-                r"\bar{m}_{ф} = \frac{0.584 \cdot k_{сх} \cdot (m_0 g)^{0.771}}{m_0} \\ "
+                r"\bar{m}_{ф} = \frac{0.584 \cdot k_{сх} \cdot m_0^{0.771}}{m_0} \\ "
                 r"\bar{m}_{оп} = \frac{m_{го} + m_{во}}{m_0} \\ "
                 r"\bar{m}_{ш} = \bar{m}_{ш,base} + \Delta \bar{m}_{тип} \\ "
                 r"\bar{m}_{с.у} = \frac{N_{дв} N_{взл} (\gamma_{дв} + k_N)}{m_0}"
@@ -173,7 +173,7 @@ class MassEstimationBlock(BaseBlock):
 
         # --- СОХРАНЕНИЕ РЕЗУЛЬТАТОВ ---
         self._finalize_results(
-            project, current_m0, w_ratio, f_ratio, t_ratio, g_ratio,
+            project, initial_m0, current_m0, w_ratio, f_ratio, t_ratio, g_ratio,
             powerplant_ratio, fuel_ratio, special_equip_ratio, 0.0, 0.0,
             converged, len(history), relative_delta, history
         )
@@ -206,7 +206,7 @@ class MassEstimationBlock(BaseBlock):
         initial_m0 = numerator / initial_denominator
         project.add_trace(
             value_name="electric_initial_m0",
-            formula=r"m_{0,1}=\frac{m_{цн}+m_{сл}}{1-(\bar{m}_{к}+\bar{m}_{с.у}+\bar{m}_{акб})}",
+            formula=r"m_{0,1}=\frac{m_{цн}+m_{обор.АКБ}+m_{обор.управления}}{1-(\bar{m}_{к}+\bar{m}_{с.у}+\bar{m}_{акб})}",
             values={"numerator": numerator, "denominator": initial_denominator},
             result=float(initial_m0),
             unit="кг",
@@ -281,14 +281,13 @@ class MassEstimationBlock(BaseBlock):
 
         # --- СОХРАНЕНИЕ РЕЗУЛЬТАТОВ ---
         self._finalize_results(
-            project, current_m0, w_ratio, f_ratio, t_ratio, g_ratio,
+            project, initial_m0, current_m0, w_ratio, f_ratio, t_ratio, g_ratio,
             powerplant_ratio, 0.0, 0.0, battery_ratio, mass.battery_equipment_mass,
             converged, len(history), relative_delta, history
         )
-
     # --- ВСПОМОГАТЕЛЬНЫЕ РАСЧЕТЫ ---
 
-    def _finalize_results(self, project, m0, w_ratio, f_ratio, t_ratio, g_ratio, pp_ratio, fuel_ratio,
+    def _finalize_results(self, project, initial_m0, m0, w_ratio, f_ratio, t_ratio, g_ratio, pp_ratio, fuel_ratio,
                           spec_equip_ratio, bat_ratio, bat_equip, converged, iters, delta, history):
         mass = project.mass
 
@@ -299,6 +298,7 @@ class MassEstimationBlock(BaseBlock):
         m_OE = m0 * (struct_ratio + pp_ratio + spec_equip_ratio) + bat_equip
         useful_load = project.feasibility.payload_mass + mass.service_load_mass
 
+        mass.m_MTO_initial = float(initial_m0)
         mass.m_MTO = float(m0)
         mass.m_OE = float(m_OE)
         mass.m_F = float(m_F)
@@ -306,6 +306,10 @@ class MassEstimationBlock(BaseBlock):
         mass.m_F_ratio = float(m_F / m0)
         mass.useful_load_ratio = float(useful_load / m0)
         mass.structure_mass_ratio = float(struct_ratio)
+        mass.wing_mass_ratio = float(w_ratio)
+        mass.fuselage_mass_ratio = float(f_ratio)
+        mass.tail_mass_ratio = float(t_ratio)
+        mass.landing_gear_mass_ratio = float(g_ratio)
         mass.converged = converged
         mass.iterations = iters
         mass.wing_loading_relative_delta = float(delta)

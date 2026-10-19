@@ -11,7 +11,6 @@ from aircraft_design.core.models.project import ProjectState
 _CHOICE_DISPLAY_NAMES = {
     ("feasibility", "powerplant_type", "electric"): "Электрическая",
     ("feasibility", "powerplant_type", "ice"): "ДВС",
-    ("feasibility", "powerplant_type", "hybrid"): "Гибридная",
     ("mass", "engine_type", "piston"): "Поршневой",
     ("mass", "engine_type", "turboprop"): "Турбовинтовой",
     ("mass", "wing_position", "high"): "Высокоплан",

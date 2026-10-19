@@ -5,7 +5,7 @@ from pathlib import Path
 
 from aircraft_design.app import run_calculation
 from aircraft_design.core.models.project import ProjectState
-from aircraft_design.io.json_io import load_project_from_json, save_project_to_json, create_input_template
+from aircraft_design.io.json_io import load_project_from_json, save_project_to_json
 from aircraft_design.io.tech_db_loader import load_technology_database_into_project
 
 logger = logging.getLogger(__name__)
@@ -20,7 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--mode",
         choices=["gui", "batch", "template"],
         default="gui",
-        help="Режим работы программы: gui — графический интерфейс (по умолчанию), batch — пакетный расчет файла, template — генерация шаблона входных данных.",
+        help="Режим работы: gui — графический интерфейс (по умолчанию), batch — пакетный расчет, template — генерация файла с описаниями.",
     )
     parser.add_argument(
         "--input",
@@ -31,7 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--output",
         dest="output_path",
         default="outputs/result.json",
-        help="Путь для сохранения результирующего JSON файла или шаблона (по умолчанию: outputs/result.json).",
+        help="Путь для сохранения результирующего JSON файла (по умолчанию: outputs/result.json).",
     )
     parser.add_argument(
         "--export-dat",
@@ -57,14 +57,18 @@ def main(argv: list[str] | None = None) -> int:
         return run_gui_application()
 
     if args.mode == "template":
-        return run_template_mode(args)
+        from aircraft_design.io.json_io import generate_json_description_template
+        project = ProjectState()
+
+        generate_json_description_template(project, Path(args.output_path))
+        print(f"Шаблон с описанием параметров успешно сохранен в: {args.output_path}")
+        return 0
 
     if args.mode == "batch":
         if not args.input_path:
             parser.error("Для пакетного режима (batch) требуется параметр --input")
 
         project = ProjectState()
-        # Подгрузка БД технологий...
 
         load_project_from_json(project, Path(args.input_path))
 
@@ -84,21 +88,6 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Отчет с формулами сохранён в: {args.trace_path}")
 
         return 0 if success else 1
-
-
-def run_template_mode(args: argparse.Namespace) -> int:
-    output_path = Path(args.output_path)
-    if output_path.suffix != ".json":
-        output_path = output_path.with_suffix(".json")
-
-    project = ProjectState()
-    template_data = create_input_template(project)
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(template_data, indent=4, ensure_ascii=False), encoding="utf-8")
-
-    print(f"Шаблон ввода сохранён в: {output_path}")
-    return 0
 
 
 if __name__ == "__main__":

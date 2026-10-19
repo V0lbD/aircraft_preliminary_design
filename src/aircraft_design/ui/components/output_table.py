@@ -48,10 +48,18 @@ class OutputTableWidget(QWidget):
         self._table.setRowCount(len(rows))
 
         for row_index, row in enumerate(rows):
+            value = row.value
+            unit = row.unit or ""
+
+            # Если единица измерения "руб." и значение является числом, переводим в миллионы
+            if unit == "руб." and isinstance(value, (int, float)):
+                value = value / 1_000_000
+                unit = "млн. руб."
+
             self._set_item(row_index, 0, row.section)
             self._set_item(row_index, 1, row.display_name)
-            self._set_item(row_index, 2, self._format_value(row.value))
-            self._set_item(row_index, 3, row.unit or "")
+            self._set_item(row_index, 2, self._format_value(value))
+            self._set_item(row_index, 3, unit)
             self._set_item(row_index, 4, row.description)
 
     def clear(self) -> None:
